@@ -72,8 +72,6 @@ class PromptTokenizingStrategy(abc.ABC):
     def _get_eot_token(self):
         try:
             id_or_ids = self.tokenizer.convert_tokens_to_ids("<|end_of_turn|>")
-            print(id_or_ids)
-            exit()
             if isinstance(id_or_ids, (int,)):
                 return id_or_ids
         except KeyError:
@@ -369,7 +367,7 @@ class ShareGPTPromptTokenizingStrategy(PromptTokenizingStrategy):
                 self.prompter.build_prompt(self.get_conversation_thread(prompt))
             ):
                 if isinstance(part, tuple):
-                    if part[0] == "User:":
+                    if part[0] == "Korean User:":
                         part = part[0] + part[1] if not user_token else part[1]
                         # this is still the user query, we should
                         res = self._tokenize(
@@ -381,7 +379,7 @@ class ShareGPTPromptTokenizingStrategy(PromptTokenizingStrategy):
                             res["input_ids"] = [user_token, *res["input_ids"]]
                         # everything from this is masked out from the labels
                         labels = [IGNORE_TOKEN_ID] * len(res["input_ids"])
-                    elif part[0] == "Assistant:":
+                    elif part[0] == "Korean Assistant:":
                         # TODO label assistant token/tokens w/ IGNORE_TOKEN_ID
                         part = part[0] + part[1] if not assistant_token else part[1]
                         # this should be the assistent response, should end with an eos token
