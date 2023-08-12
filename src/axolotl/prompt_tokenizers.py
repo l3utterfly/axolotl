@@ -18,6 +18,8 @@ LLAMA_DEFAULT_EOS_TOKEN = "</s>"  # nosec
 LLAMA_DEFAULT_BOS_TOKEN = "<s>"  # nosec
 LLAMA_DEFAULT_UNK_TOKEN = "<unk>"  # nosec
 
+LAYLA_EOT_TOKEN = "<|end_of_turn|>"  # nosec
+
 
 class InvalidDataException(Exception):
     """
@@ -60,6 +62,18 @@ class PromptTokenizingStrategy(abc.ABC):
     def _get_assistant_token(self):
         try:
             id_or_ids = self.tokenizer.convert_tokens_to_ids("<|ASSISTANT|>")
+            if isinstance(id_or_ids, (int,)):
+                return id_or_ids
+        except KeyError:
+            pass
+        return False
+
+    @functools.lru_cache(maxsize=128)
+    def _get_eot_token(self):
+        try:
+            id_or_ids = self.tokenizer.convert_tokens_to_ids("<|end_of_turn|>")
+            print(id_or_ids)
+            exit()
             if isinstance(id_or_ids, (int,)):
                 return id_or_ids
         except KeyError:
@@ -355,7 +369,7 @@ class ShareGPTPromptTokenizingStrategy(PromptTokenizingStrategy):
                 self.prompter.build_prompt(self.get_conversation_thread(prompt))
             ):
                 if isinstance(part, tuple):
-                    if part[0] == "USER:":
+                    if part[0] == "User:":
                         part = part[0] + part[1] if not user_token else part[1]
                         # this is still the user query, we should
                         res = self._tokenize(
@@ -367,7 +381,7 @@ class ShareGPTPromptTokenizingStrategy(PromptTokenizingStrategy):
                             res["input_ids"] = [user_token, *res["input_ids"]]
                         # everything from this is masked out from the labels
                         labels = [IGNORE_TOKEN_ID] * len(res["input_ids"])
-                    elif part[0] == "ASSISTANT:":
+                    elif part[0] == "Assistant:":
                         # TODO label assistant token/tokens w/ IGNORE_TOKEN_ID
                         part = part[0] + part[1] if not assistant_token else part[1]
                         # this should be the assistent response, should end with an eos token
@@ -414,12 +428,11 @@ class ShareGPTPromptTokenizingStrategy(PromptTokenizingStrategy):
             padding=False,
             return_tensors=None,
         )
-        if (
-            result["input_ids"][-1] != self.tokenizer.eos_token_id
-            and len(result["input_ids"]) < self.sequence_len
-            and add_eos_token
-        ):
-            result["input_ids"].append(self.tokenizer.eos_token_id)
+
+        # add EOT token (always do this)
+        eot_token_id = self._get_eot_token()
+        if (len(result["input_ids"]) < self.sequence_len):
+            result["input_ids"].append(eot_token_id)
             result["attention_mask"].append(1)
 
         if result["input_ids"][0] == self.tokenizer.bos_token_id and strip_bos_token:
