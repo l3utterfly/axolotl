@@ -280,7 +280,7 @@ class ShareGPTPrompter:  # pylint: disable=too-few-public-methods
         )
         self._conversation = Conversation(
             system=system,
-            roles=["User", "Assistant"],
+            roles=["Korean User", "Korean Assistant"],
             messages=[],
             offset=0,
             sep_style=SeparatorStyle.TWO,
