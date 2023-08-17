@@ -72,8 +72,6 @@ class PromptTokenizingStrategy(abc.ABC):
     def _get_eot_token(self):
         try:
             id_or_ids = self.tokenizer.convert_tokens_to_ids("<|end_of_turn|>")
-            print(id_or_ids)
-            exit()
             if isinstance(id_or_ids, (int,)):
                 return id_or_ids
         except KeyError:
