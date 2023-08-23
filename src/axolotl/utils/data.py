@@ -1,13 +1,19 @@
 """Module containing data utilities"""
 import functools
-import itertools
+import hashlib
 import logging
 from hashlib import md5
 from pathlib import Path
-from typing import List, Tuple, Union
+from typing import Tuple, Union
 
 import torch
-from datasets import Dataset, DatasetDict, load_dataset, load_from_disk
+from datasets import (
+    Dataset,
+    DatasetDict,
+    concatenate_datasets,
+    load_dataset,
+    load_from_disk,
+)
 from huggingface_hub import hf_hub_download
 from transformers import PreTrainedTokenizerBase
 
@@ -35,8 +41,45 @@ from axolotl.prompters import (
     ShareGPTPrompter,
     SummarizeTLDRPrompter,
 )
+from axolotl.utils.dict import DictDefault
+from axolotl.utils.distributed import is_main_process, zero_first
+from axolotl.utils.trainer import (
+    calculate_total_num_steps,
+    process_datasets_for_packing,
+)
 
 LOG = logging.getLogger("axolotl")
+DEFAULT_DATASET_PREPARED_PATH = "last_run_prepared"
+
+
+def prepare_dataset(cfg, tokenizer):
+    if not cfg.pretraining_dataset:
+        train_dataset, eval_dataset = load_prepare_datasets(
+            tokenizer, cfg, DEFAULT_DATASET_PREPARED_PATH
+        )
+    else:
+        train_dataset = load_pretraining_dataset(
+            cfg.pretraining_dataset,
+            tokenizer,
+            max_tokens=cfg.sequence_len,
+            seed=cfg.seed or 42,
+        )
+        # https://discuss.huggingface.co/t/how-to-use-huggingface-trainer-streaming-datasets-without-wrapping-it-with-torchdatas-iterablewrapper/25230
+        train_dataset = train_dataset.with_format("torch")
+        eval_dataset = None
+
+    with zero_first(is_main_process()):
+        train_dataset, eval_dataset = process_datasets_for_packing(
+            cfg, train_dataset, eval_dataset
+        )
+    if cfg.max_steps:
+        total_num_steps = min(
+            calculate_total_num_steps(cfg, train_dataset, tokenizer), cfg.max_steps
+        )
+        LOG.info(f"Maximum number of steps set at {total_num_steps}")
+    else:
+        total_num_steps = calculate_total_num_steps(cfg, train_dataset, tokenizer)
+    return train_dataset, eval_dataset, total_num_steps
 
 
 def load_tokenized_prepared_datasets(
@@ -109,6 +152,7 @@ def load_tokenized_prepared_datasets(
             local_path = Path(d.path)
             if local_path.exists():
                 if local_path.is_dir():
+                    # TODO dirs with arrow or parquet files could be loaded with `load_from_disk`
                     ds = load_dataset(
                         d.path,
                         name=d.name,
@@ -117,8 +161,15 @@ def load_tokenized_prepared_datasets(
                         split=None,
                     )
                 elif local_path.is_file():
+                    ds_type = "json"
+                    if d.ds_type:
+                        ds_type = d.ds_type
+                    elif ".parquet" in d.path:
+                        ds_type = "parquet"
+                    elif ".arrow" in d.path:
+                        ds_type = "arrow"
                     ds = load_dataset(
-                        "json",
+                        ds_type,
                         name=d.name,
                         data_files=d.path,
                         streaming=False,
@@ -155,13 +206,27 @@ def load_tokenized_prepared_datasets(
                     )
                 else:
                     ds = ds.shuffle(seed=seed).shard(num_shards=d.shards, index=0)
+
+            d_base_type = d_prompt_style = None
             d_type = d.type
-            d_type_split = d_type.split(":")
-            d_base_type = d_type_split[0]
-            d_prompt_style = d_type_split[1] if len(d_type_split) > 1 else None
+            if isinstance(d_type, str):
+                d_type_split = d_type.split(":")
+                d_base_type = d_type_split[0]
+                d_prompt_style = d_type_split[1] if len(d_type_split) > 1 else None
             if "train" in ds:
                 ds = ds["train"]
-            if ds_strategy := load(d.type, tokenizer, cfg):
+            if (
+                "input_ids" in ds.features
+                and "attention_mask" in ds.features
+                and "labels" in ds.features
+            ):
+                # dataset is already tokenized, just drop it straight in
+                datasets.append(ds)
+            elif isinstance(d.type, DictDefault):
+                ds_strategy = load("user_defined", tokenizer, cfg, d.type.to_dict())
+                ds_wrapper = TokenizedPromptDataset(ds_strategy, ds)
+                datasets.append(ds_wrapper)
+            elif ds_strategy := load(d.type, tokenizer, cfg, d):
                 ds_wrapper = TokenizedPromptDataset(ds_strategy, ds)
                 datasets.append(ds_wrapper)
             elif d_base_type == "alpaca":
@@ -262,20 +327,12 @@ def load_tokenized_prepared_datasets(
                 raise ValueError(
                     f"unhandled prompt tokenization strategy: {d.type} {suffix}"
                 )
-        LOG.info("tokenizing, merging, and shuffling master dataset")
+        LOG.info("merging datasets")
+        dataset = concatenate_datasets(datasets)
 
-        samples: List[int] = []
-        chunk_size = 1000
-        for d in datasets:
-            d_iter = iter(d)
-            while True:
-                chunk = list(itertools.islice(d_iter, chunk_size))
-                if not chunk:
-                    break
-                samples.extend(chunk)
-
-        LOG.info("shuffle")
-        dataset = Dataset.from_list(samples).shuffle(seed=seed)
+        if len(datasets) > 1:
+            LOG.info("shuffle merged datasets")
+            dataset = dataset.shuffle(seed=seed)
         if cfg.local_rank == 0:
             LOG.info(f"Saving merged prepared dataset to disk... {prepared_ds_path}")
             dataset.save_to_disk(prepared_ds_path)
@@ -374,6 +431,7 @@ def load_prepare_datasets(
             dataset = Dataset.from_list(list(constant_len_dataset))
 
             # filter out bad data
+            # TODO convert to dataset.filter(...)
             dataset = Dataset.from_list(
                 [
                     d
@@ -413,7 +471,41 @@ def load_prepare_datasets(
         )
 
     if cfg.val_set_size:
-        dataset = dataset.train_test_split(test_size=cfg.val_set_size, shuffle=False)
+        # ensure we end up with the same fingerprint by doing rank0 first and being able to cache
+        to_hash_train = (
+            dataset._fingerprint  # pylint: disable=protected-access
+            + "|"
+            + str(cfg.val_set_size)
+            + "|"
+            + "train"
+            + "|"
+            + str(cfg.seed or 42)
+        )
+        to_hash_test = (
+            dataset._fingerprint  # pylint: disable=protected-access
+            + "|"
+            + str(cfg.val_set_size)
+            + "|"
+            + "test"
+            + "|"
+            + str(cfg.seed or 42)
+        )
+        train_fingerprint = hashlib.md5(
+            to_hash_train.encode(), usedforsecurity=False
+        ).hexdigest()
+        test_fingerprint = hashlib.md5(
+            to_hash_test.encode(), usedforsecurity=False
+        ).hexdigest()
+
+        with zero_first(is_main_process()):
+            dataset = dataset.train_test_split(
+                test_size=cfg.val_set_size,
+                shuffle=False,
+                seed=cfg.seed or 42,
+                train_new_fingerprint=train_fingerprint,
+                test_new_fingerprint=test_fingerprint,
+            )
+
         train_dataset = dataset["train"]
         eval_dataset = dataset["test"]
     else:

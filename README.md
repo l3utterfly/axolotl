@@ -1,10 +1,40 @@
 # Axolotl
 
+Axolotl is a tool designed to streamline the fine-tuning of various AI models, offering support for multiple configurations and architectures.
+
+<table>
+<tr>
+<td>
+
+## Table of Contents
+- [Introduction](#axolotl)
+- [Supported Features](#axolotl-supports)
+- [Quickstart](#quickstart-)
+- [Installation](#installation)
+  - [Docker Installation](#environment)
+  - [Conda/Pip venv Installation](#condapip-venv)
+  - [LambdaLabs Installation](#lambdalabs)
+- [Dataset](#dataset)
+  - [How to Add Custom Prompts](#how-to-add-custom-prompts)
+  - [How to Use Custom Pretokenized Dataset](#how-to-use-your-custom-pretokenized-dataset)
+- [Config](#config)
+  - [Train](#train)
+  - [Inference](#inference)
+  - [Merge LORA to Base](#merge-lora-to-base)
+- [Common Errors](#common-errors-)
+- [Need Help?](#need-help-)
+- [Badge](#badge-)
+- [Community Showcase](#community-showcase)
+- [Contributing](#contributing-)
+
+</td>
+<td>
+
 <div align="center">
   <img src="image/axolotl.png" alt="axolotl" width="160">
   <div>
     <p>
-      <b>One repo to finetune them all! </b>
+      <b>Axolotl provides a unified repository for fine-tuning <br />a variety of AI models with ease</b>
     </p>
     <p>
       Go ahead and axolotl questions!!
@@ -14,27 +44,34 @@
   </div>
 </div>
 
+</td>
+</tr>
+</table>
+
 ## Axolotl supports
 
-|          | fp16/fp32 | lora | qlora | gptq | gptq w/ lora | gptq w/flash attn | flash attn | xformers attn |
-|----------|:----------|:-----|-------|------|:-------------|-------------------|------------|---------------|
-| llama    | ✅         | ✅    | ✅     | ✅    | ✅             | ✅                 | ✅          | ✅             |
-| Pythia   | ✅         | ✅    | ✅     | ❌    | ❓            | ❌                 | ❌          | ❓             |
-| cerebras | ✅         | ✅    | ✅     | ❌    | ❓            | ❌                 | ❌          | ✅             |
-| mpt      | ✅         | ❌    | ❓     | ❌    | ❓            | ❌                 | ❌          | ❓             |
-| falcon   | ✅         | ✅    | ✅     | ❌    | ❓            | ❌                 | ❌          | ✅             |
-| gpt-j    | ✅         | ✅    | ✅     | ❌    | ❓            | ❌                 | ❓          | ✅             |
-| XGen     | ✅         | ❓    | ✅     | ❓    | ❓            | ❓                 | ❓          | ✅
+|          | fp16/fp32 | lora | qlora | gptq | gptq w/flash attn | flash attn | xformers attn |
+|----------|:----------|:-----|-------|------|-------------------|------------|---------------|
+| llama    | ✅         | ✅    | ✅     | ✅             | ✅                 | ✅          | ✅             |
+| Pythia   | ✅         | ✅    | ✅     | ❌             | ❌                 | ❌          | ❓             |
+| cerebras | ✅         | ✅    | ✅     | ❌             | ❌                 | ❌          | ❓             |
+| mpt      | ✅         | ❌    | ❓     | ❌             | ❌                 | ❌          | ❓             |
+| falcon   | ✅         | ✅    | ✅     | ❌             | ❌                 | ❌          | ❓             |
+| gpt-j    | ✅         | ✅    | ✅     | ❌             | ❌                 | ❓          | ❓             |
+| XGen     | ✅         | ❓    | ✅     | ❓             | ❓                 | ❓          | ✅             |
 
 
 ## Quickstart ⚡
+
+Get started with Axolotl in just a few steps! This quickstart guide will walk you through setting up and running a basic fine-tuning task.
 
 **Requirements**: Python >=3.9 and Pytorch >=2.0.
 
 ```bash
 git clone https://github.com/OpenAccess-AI-Collective/axolotl
+cd axolotl
 
-pip3 install -e .
+pip3 install -e .[flash-attn]
 pip3 install -U git+https://github.com/huggingface/peft.git
 
 # finetune lora
@@ -63,7 +100,7 @@ accelerate launch scripts/finetune.py examples/openllama-3b/lora.yml \
   ```
 
 - Conda/Pip venv
-  1. Install python **3.9**
+  1. Install python >=**3.9**
 
   2. Install pytorch stable https://pytorch.org/get-started/locally/
 
@@ -116,9 +153,7 @@ accelerate launch scripts/finetune.py examples/openllama-3b/lora.yml \
 
   pip3 install -e . # change depend on needs
   pip3 install protobuf==3.20.3
-  pip3 install -U requests
-  pip3 install -U --ignore-installed psutil
-  pip3 install -U scipy
+  pip3 install -U --ignore-installed requests Pillow psutil scipy
   pip3 install git+https://github.com/huggingface/peft.git # not for gptq
   ```
 
@@ -130,13 +165,14 @@ accelerate launch scripts/finetune.py examples/openllama-3b/lora.yml \
 
 ### Dataset
 
+Axolotl supports a variety of dataset formats. Below are some of the formats you can use.
 Have dataset(s) in one of the following format (JSONL recommended):
 
 - `alpaca`: instruction; input(optional)
   ```json
   {"instruction": "...", "input": "...", "output": "..."}
   ```
-- `sharegpt:chat`: conversations
+- `sharegpt:chat`: conversations where `from` is `human`/`gpt`
   ```json
   {"conversations": [{"from": "...", "value": "..."}]}
   ```
@@ -221,9 +257,17 @@ Have dataset(s) in one of the following format (JSONL recommended):
   ```json
   {"conversations": [{"role": "...", "value": "..."}]}
   ```
+- `metharme`: instruction, adds additional eos tokens
+  ```json
+  {"prompt": "...", "generation": "..."}
+  ```
 - `sharegpt_simple.load_role`: conversations where `role` is used instead of `from`
   ```json
   {"conversations": [{"role": "...", "value": "..."}]}
+  ```
+- `sharegpt_simple.load_guanaco`: conversations where `from` is `prompter`/`assistant` instead of default sharegpt
+  ```json
+  {"conversations": [{"from": "...", "value": "..."}]}
   ```
 - `sharegpt_jokes`: creates a chat where bot is asked to tell a joke, then explain why the joke is funny
   ```json
@@ -234,11 +278,29 @@ Have dataset(s) in one of the following format (JSONL recommended):
 
 #### How to add custom prompts
 
-  1. Add your method to a file in [prompt_strategies](src/axolotl/prompt_strategies). Please see other files as example.
-  2. Use your custom file name as the dataset type `<prompt_strategies_file>.load_<load_fn>`.
+Using yaml. Example:
+```yaml
+datasets:
+  - path: repo
+    type:
+      system_prompt: ""
+      no_input_format: |-
+        User: {instruction}<|end_of_turn|>
+        Assistant:
+      format: |-
+        User: {instruction}
+        {input}<|end_of_turn|>
+        Assistant:
+```
 
-Optionally, download some datasets, see [data/README.md](data/README.md)
+Using file:
+1. Add your method to a file in [prompt_strategies](src/axolotl/prompt_strategies). Please see other files as example.
+2. Use your custom file name as the dataset type `<prompt_strategies_file>.load_<load_fn>`.
 
+#### How to use your custom pretokenized dataset
+
+- Do not pass a `type:`
+- Dataset must contain `input_ids`, `attention_mask`, `labels` in columns
 
 
 ### Config
@@ -268,9 +330,9 @@ See [examples](examples) for quick start. It is recommended to duplicate and mod
 
   # local
   datasets:
-    - path: json
-      data_files: data.jsonl # or json
-      type: alpaca # format from earlier
+    - path: data.jsonl # or json
+      ds_type: json # see other options below
+      type: alpaca
   ```
 
 - loading
@@ -322,6 +384,8 @@ tokenizer_type: AutoTokenizer
 trust_remote_code:
 # use_fast option for tokenizer loading from_pretrained, default to True
 tokenizer_use_fast:
+# Whether to use the legacy tokenizer setting, defaults to True
+tokenizer_legacy:
 # resize the model embeddings when new tokens are added to multiples of 32
 # this is reported to improve training speed on some models
 resize_token_embeddings_to_32x:
@@ -349,9 +413,28 @@ datasets:
   - path: vicgalle/alpaca-gpt4
   # The type of prompt to use for training. [alpaca, sharegpt, gpteacher, oasst, reflection]
     type: alpaca # format | format:<prompt_style> (chat/instruct) | <prompt_strategies>.load_<load_fn>
+    ds_type: # Optional[str] (json|arrow|parquet) defines the datatype when path is a file
     data_files: # path to source data files
     shards: # number of shards to split data into
     name: # name of dataset configuration to load
+
+  # custom user prompt
+  - path: repo
+    type:
+      # the below are defaults. only set what's needed.
+      system_prompt: ""
+      field_system: system
+      field_instruction: instruction
+      field_output: input
+
+      # customizable to be single line or multi-line
+      system_format: "{system}"
+      # 'format' can include {input}
+      format: |-
+        User: {instruction} {input}
+        Assistant:
+      # 'no_input_format' cannot include {input}
+      no_input_format: "{instruction} "
 
 # axolotl attempts to save the dataset as an arrow after packing the data together so
 # subsequent training attempts load faster, relative path
@@ -360,10 +443,13 @@ dataset_prepared_path: data/last_run_prepared
 push_dataset_to_hub: # repo path
 # push checkpoints to hub
 hub_model_id: # repo path to push finetuned model
+# how to push checkpoints to hub
+# https://huggingface.co/docs/transformers/v4.31.0/en/main_classes/trainer#transformers.TrainingArguments.hub_strategy
+hub_strategy:
 # whether to use hf `use_auth_token` for loading datasets. Useful for fetching private datasets
 # required to be true when used in combination with `push_dataset_to_hub`
 hf_use_auth_token: # boolean
-# How much of the dataset to set aside as evaluation. 1 = 100%, 0.50 = 50%, etc
+# How much of the dataset to set aside as evaluation. 1 = 100%, 0.50 = 50%, etc. 0 for no eval.
 val_set_size: 0.04
 # Num shards for whole dataset
 dataset_shard_num:
@@ -375,7 +461,14 @@ dataset_shard_idx:
 sequence_len: 2048
 # max sequence length to concatenate training samples together up to
 # inspired by StackLLaMA. see https://huggingface.co/blog/stackllama#supervised-fine-tuning
+# FutureWarning: This will soon be DEPRECATED
 max_packed_sequence_len: 1024
+# use efficient multi-packing with block diagonal attention and per sequence position_ids. Recommend set to 'true'
+sample_packing:
+# you can set these packing optimizations AFTER starting a training at least once.
+# The trainer will provide recommended values for these values.
+sample_packing_eff_est:
+total_num_tokens:
 
 # if you want to use 'lora' or 'qlora' or leave blank to train all parameters in original model
 adapter: lora
@@ -401,11 +494,12 @@ lora_out_dir:
 lora_fan_in_fan_out: false
 
 # wandb configuration if you're using it
-wandb_mode:
-wandb_project:
+wandb_mode: # "offline" to save run metadata locally and not sync to the server, "disabled" to turn off wandb
+wandb_project: # your wandb project name
+wandb_entity: # a wandb Team name if using a Team
 wandb_watch:
-wandb_run_id:
-wandb_log_model: # 'checkpoint'
+wandb_run_id: # set the name of your wandb run
+wandb_log_model: # "checkpoint" to log model to wandb Artifacts every `save_steps` or "end" to log only at the end of training
 
 # where to save the finished model to
 output_dir: ./completed-model
@@ -417,9 +511,13 @@ eval_batch_size: 2
 num_epochs: 3
 warmup_steps: 100
 learning_rate: 0.00003
+lr_quadratic_warmup:
 logging_steps:
-save_steps:
+save_strategy: # set to `no` to skip checkpoint saves
+save_steps: # leave empty to save at each epoch
 eval_steps:
+save_total_limit: # checkpoints saved at a time
+max_steps:
 
 # save model as safetensors (require safetensors package)
 save_safetensors:
@@ -464,8 +562,8 @@ max_grad_norm:
 flash_optimum:
 # whether to use xformers attention patch https://github.com/facebookresearch/xformers:
 xformers_attention:
-# whether to use flash attention patch https://github.com/HazyResearch/flash-attention:
-flash_attention:  # require a100 for llama
+# whether to use flash attention patch https://github.com/Dao-AILab/flash-attention:
+flash_attention:
 # whether to use scaled-dot-product attention
 # https://pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention.html
 sdp_attention:
@@ -474,6 +572,10 @@ landmark_attention:
 # xpos RoPE see https://github.com/kaiokendev/cutoff-len-is-context-len/blob/main/util/xpos_rope_llama_monkey_patch.py
 # llama only
 xpos_rope:
+# RoPE Scaling https://github.com/huggingface/transformers/pull/24653
+rope_scaling:
+  type: # linear | dynamic
+  factor: # float
 
 # resume from a specific checkpoint dir
 resume_from_checkpoint:
@@ -496,7 +598,7 @@ tokens:
 fsdp:
 fsdp_config:
 
-# Deepspeed
+# Deepspeed config path
 deepspeed:
 
 # Path to torch distx for optim 'adamw_anyprecision'
@@ -529,7 +631,7 @@ accelerate launch scripts/finetune.py configs/your_config.yml
 
 #### Multi-GPU
 
-It is recommended to pre-tokenize dataset with the following before finetuning:
+You can optionally pre-tokenize dataset with the following before finetuning:
 ```bash
 CUDA_VISIBLE_DEVICES="" accelerate ... --prepare_ds_only
 ```
@@ -547,7 +649,22 @@ fsdp_config:
   fsdp_transformer_layer_cls_to_wrap: LlamaDecoderLayer
 ```
 
-- llama Deepspeed: append `ACCELERATE_USE_DEEPSPEED=true` in front of finetune command
+- llama Deepspeed
+```yaml
+deepspeed: deepspeed/zero3.json
+```
+
+##### Weights & Biases Logging
+
+- wandb options
+```yaml
+wandb_mode:
+wandb_project:
+wandb_entity:
+wandb_watch:
+wandb_run_id:
+wandb_log_model:
+```
 
 ### Inference
 
@@ -583,13 +700,19 @@ CUDA_VISIBLE_DEVICES="" python3 scripts/finetune.py ...
 
 ## Common Errors 🧰
 
-> Cuda out of memory
+> If you encounter a 'Cuda out of memory' error, it means your GPU ran out of memory during the training process. Here's how to resolve it:
 
 Please reduce any below
   - `micro_batch_size`
   - `eval_batch_size`
   - `gradient_accumulation_steps`
   - `sequence_len`
+
+> `failed (exitcode: -9)`
+
+Usually means your system has run out of system memory.
+Similarly, you should consider reducing the same settings as when you run out of VRAM.
+Additionally, look into upgrading your system RAM which should be simpler than GPU upgrades.
 
 > RuntimeError: expected scalar type Float but found Half
 
@@ -619,6 +742,8 @@ Building something cool with Axolotl? Consider adding a badge to your model card
 
 ## Community Showcase
 
+Check out some of the projects and models that have been built using Axolotl! Have a model you'd like to add to our Community Showcase? Open a PR with your model.
+
 Open Access AI Collective
 - [Minotaur 13b](https://huggingface.co/openaccess-ai-collective/minotaur-13b)
 - [Manticore 13b](https://huggingface.co/openaccess-ai-collective/manticore-13b)
@@ -629,7 +754,9 @@ PocketDoc Labs
 
 ## Contributing 🤝
 
-Bugs? Please check for open issue else create a new [Issue](https://github.com/OpenAccess-AI-Collective/axolotl/issues/new).
+Please read the [contributing guide](./.github/CONTRIBUTING.md)
+
+Bugs? Please check the [open issues](https://github.com/OpenAccess-AI-Collective/axolotl/issues/bug) else create a new Issue.
 
 PRs are **greatly welcome**!
 

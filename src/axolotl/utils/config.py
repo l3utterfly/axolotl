@@ -1,13 +1,91 @@
-"""Module for validating config files"""
+"""Module for working with config dicts"""
 
 import logging
+import os
 
 import torch
+
+from axolotl.utils.bench import log_gpu_memory_usage
 
 LOG = logging.getLogger("axolotl")
 
 
+def choose_device(cfg):
+    def get_device():
+        try:
+            if torch.cuda.is_available():
+                return f"cuda:{cfg.local_rank}"
+
+            if torch.backends.mps.is_available():
+                return "mps"
+
+            raise SystemError("No CUDA/mps device found")
+        except Exception:  # pylint: disable=broad-exception-caught
+            return "cpu"
+
+    cfg.device = get_device()
+    if cfg.device_map != "auto":
+        if cfg.device.startswith("cuda"):
+            cfg.device_map = {"": cfg.local_rank}
+        else:
+            cfg.device_map = {"": cfg.device}
+
+    # in `accelerate launch`, we need to not pass through any device map and let
+    # accelerate figure out which parts of the model to put on which gpu
+    accelerate_vars = [var for var in os.environ if var.startswith("ACCELERATE_USE_")]
+    if accelerate_vars:
+        cfg.device_map = None
+
+
+def normalize_config(cfg):
+    # setup some derived config / hyperparams
+    cfg.gradient_accumulation_steps = cfg.gradient_accumulation_steps or (
+        cfg.batch_size // cfg.micro_batch_size
+    )
+    cfg.batch_size = (
+        cfg.batch_size or cfg.micro_batch_size * cfg.gradient_accumulation_steps
+    )
+    cfg.world_size = int(os.environ.get("WORLD_SIZE", 1))
+    cfg.local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    choose_device(cfg)
+    cfg.ddp = cfg.ddp if cfg.ddp is not None else cfg.world_size != 1
+    if cfg.ddp:
+        cfg.device_map = {"": int(os.environ.get("LOCAL_RANK", 0))}
+        cfg.batch_size = cfg.batch_size * cfg.world_size
+
+    if cfg.device == "mps":
+        cfg.load_in_8bit = False
+        cfg.tf32 = False
+        if cfg.bf16:
+            cfg.fp16 = True
+        cfg.bf16 = False
+    else:
+        torch.backends.cuda.matmul.allow_tf32 = cfg.tf32 or False
+
+    if cfg.bf16 or cfg.bfloat16:
+        cfg.torch_dtype = torch.bfloat16
+    elif cfg.load_in_8bit or cfg.fp16 or cfg.float16:
+        cfg.torch_dtype = torch.float16
+    else:
+        cfg.torch_dtype = torch.float32
+
+    log_gpu_memory_usage(LOG, "baseline", cfg.device)
+
+
 def validate_config(cfg):
+    if cfg.max_packed_sequence_len and cfg.sample_packing:
+        raise ValueError(
+            "please set only one of max_packed_sequence_len (deprecated soon) or sample_packing"
+        )
+    if cfg.max_packed_sequence_len:
+        LOG.warning(
+            str(
+                PendingDeprecationWarning(
+                    "max_packed_sequence_len will be deprecated in favor of sample_packing"
+                )
+            )
+        )
+
     if cfg.gradient_accumulation_steps and cfg.batch_size:
         raise ValueError(
             "please set only one of gradient_accumulation_steps or batch_size"
@@ -76,7 +154,7 @@ def validate_config(cfg):
                 "You should probably set bfloat16 or float16 to true to "
                 "load the model in float16 for BetterTransformers"
             )
-        if int(torch.__version__.split(".")[0]) < 2:
+        if int(torch.__version__.split(".", maxsplit=1)[0]) < 2:
             LOG.warning("torch>=2.0.0 required")
             raise ValueError(
                 f"flash_optimum for BetterTransformers may not be used with {torch.__version__}"
@@ -95,6 +173,24 @@ def validate_config(cfg):
     if cfg.push_to_hub_model_id:
         raise ValueError(
             "push_to_hub_model_id is deprecated. Please use hub_model_id instead."
+        )
+
+    if cfg.gptq and cfg.model_revision:
+        raise ValueError(
+            "model_revision is not supported for GPTQ models. "
+            + "Please download the model from HuggingFace Hub manually for correct branch, "
+            + "point to its path, and remove model_revision from the config."
+        )
+
+    if cfg.sample_packing and cfg.sdp_attention:
+        # incompatible due to bug w/ accelerate causing 0.0 loss when using llama2
+        raise ValueError(
+            "sample_packing not compatible with sdp_attention. Use flash_attention"
+        )
+
+    if cfg.sample_packing and cfg.xformers_attention:
+        raise ValueError(
+            "sample_packing not compatible with xformers_attention. Use flash_attention"
         )
 
     # TODO

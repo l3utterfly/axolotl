@@ -11,6 +11,7 @@ import bitsandbytes as bnb
 import torch
 import transformers
 from optimum.bettertransformer import BetterTransformer
+from peft.tuners.lora import LoraLayer
 from transformers import (  # noqa: F401
     AutoConfig,
     AutoModelForCausalLM,
@@ -32,37 +33,38 @@ if TYPE_CHECKING:
     from axolotl.utils.dict import DictDefault  # noqa: F401
 
 
-def load_tokenizer(
-    tokenizer_config,
-    tokenizer_type,
-    cfg,
-):
+def load_tokenizer(cfg):
+    tokenizer_kwargs = {}
     use_fast = True  # this is the default
+
     if cfg.tokenizer_use_fast is not None:
         use_fast = cfg.tokenizer_use_fast
-    if tokenizer_type:
-        tokenizer = getattr(transformers, tokenizer_type).from_pretrained(
-            tokenizer_config,
-            trust_remote_code=cfg.trust_remote_code or False,
-            use_fast=use_fast,
-        )
-    else:
-        tokenizer = AutoTokenizer.from_pretrained(
-            tokenizer_config,
-            trust_remote_code=cfg.trust_remote_code or False,
-            use_fast=use_fast,
-        )
+    if cfg.tokenizer_legacy is not None:
+        # True is the default w/ https://github.com/huggingface/transformers/pull/25224
+        tokenizer_kwargs["legacy"] = cfg.tokenizer_legacy
 
-    LOG.debug(f"EOS: {tokenizer.eos_token_id} / {tokenizer.eos_token}")
-    LOG.debug(f"BOS: {tokenizer.bos_token_id} / {tokenizer.bos_token}")
-    LOG.debug(f"PAD: {tokenizer.pad_token_id} / {tokenizer.pad_token}")
-    LOG.debug(f"UNK: {tokenizer.unk_token_id} / {tokenizer.unk_token}")
+    tokenizer_cls = AutoTokenizer
+    if cfg.tokenizer_type:
+        tokenizer_cls = getattr(transformers, cfg.tokenizer_type)
+
+    tokenizer_config = cfg.tokenizer_config or cfg.base_model_config
+    tokenizer = tokenizer_cls.from_pretrained(
+        tokenizer_config,
+        trust_remote_code=cfg.trust_remote_code or False,
+        use_fast=use_fast,
+        **tokenizer_kwargs,
+    )
 
     if tokenizer.__class__.__name__ in [
         "LlamaTokenizer",
         "LlamaTokenizerFast",
     ]:
         tokenizer.pad_token = LLAMA_DEFAULT_PAD_TOKEN
+
+    LOG.debug(f"EOS: {tokenizer.eos_token_id} / {tokenizer.eos_token}")
+    LOG.debug(f"BOS: {tokenizer.bos_token_id} / {tokenizer.bos_token}")
+    LOG.debug(f"PAD: {tokenizer.pad_token_id} / {tokenizer.pad_token}")
+    LOG.debug(f"UNK: {tokenizer.unk_token_id} / {tokenizer.unk_token}")
 
     if tokenizer.__class__.__name__ == "GPTNeoXTokenizerFast":
         tokenizer.add_special_tokens({"pad_token": "[PAD]"})
@@ -86,12 +88,13 @@ def load_model(
     base_model = cfg.base_model
     base_model_config = cfg.base_model_config
     model_type = cfg.model_type
-    adapter = cfg.adapter
 
     # TODO refactor as a kwarg
     load_in_8bit = cfg.load_in_8bit
-    cfg.is_llama_derived_model = "llama" in base_model or (
-        cfg.model_type and "llama" in cfg.model_type.lower()
+    cfg.is_llama_derived_model = (
+        "llama" in base_model
+        or (cfg.model_type and "llama" in cfg.model_type.lower())
+        or cfg.is_llama_derived_model
     )
 
     if cfg.is_llama_derived_model and cfg.flash_attention:
@@ -101,7 +104,7 @@ def load_model(
             )
 
             LOG.info("patching with flash attention")
-            replace_llama_attn_with_flash_attn()
+            replace_llama_attn_with_flash_attn(packed=cfg.sample_packing)
     elif cfg.is_llama_derived_model and cfg.xformers_attention:
         from axolotl.monkeypatch.llama_attn_hijack_xformers import (
             hijack_llama_attention,
@@ -110,9 +113,7 @@ def load_model(
         LOG.info("patching with xformers attention")
         hijack_llama_attention()
     elif cfg.is_llama_derived_model and cfg.sdp_attention:
-        from axolotl.monkeypatch.llama_attn_hijack_xformers import (
-            hijack_llama_sdp_attention,
-        )
+        from axolotl.monkeypatch.llama_attn_hijack_sdp import hijack_llama_sdp_attention
 
         LOG.info("patching with sdp attention")
         hijack_llama_sdp_attention()
@@ -136,12 +137,16 @@ def load_model(
         LOG.info("patching with xpos rope")
         replace_llama_rope_with_xpos_rope()
 
-    if cfg.bf16 or cfg.bfloat16:
-        torch_dtype = torch.bfloat16
-    elif cfg.load_in_8bit or cfg.fp16 or cfg.float16:
-        torch_dtype = torch.float16
-    else:
-        torch_dtype = torch.float32
+    if (
+        cfg.is_llama_derived_model
+        and (cfg.max_packed_sequence_len or cfg.sample_packing)
+        and not cfg.inference
+    ):
+        from axolotl.monkeypatch.llama_expand_mask import hijack_expand_mask
+
+        LOG.info("patching _expand_mask")
+        hijack_expand_mask()
+
     try:
         if cfg.gptq:
             from alpaca_lora_4bit.monkeypatch.peft_tuners_lora_monkey_patch import (
@@ -173,7 +178,7 @@ def load_model(
             load_in_4bit=True,
             llm_int8_threshold=6.0,
             llm_int8_has_fp16_weight=False,
-            bnb_4bit_compute_dtype=torch_dtype,
+            bnb_4bit_compute_dtype=cfg.torch_dtype,
             bnb_4bit_use_double_quant=True,
             bnb_4bit_quant_type="nf4",
         )
@@ -219,14 +224,20 @@ def load_model(
         elif cfg.is_llama_derived_model and not cfg.trust_remote_code:
             from transformers import LlamaForCausalLM
 
-            config = LlamaConfig.from_pretrained(base_model_config)
+            config_kwargs = {}
+            if cfg.rope_scaling:
+                config_kwargs["rope_scaling"] = cfg.rope_scaling
+            config = LlamaConfig.from_pretrained(
+                base_model_config,
+                **config_kwargs,
+            )
             model = LlamaForCausalLM.from_pretrained(
                 base_model,
                 config=config,
+                device_map=cfg.device_map,
                 load_in_8bit=cfg.load_in_8bit and cfg.adapter is not None,
                 load_in_4bit=cfg.load_in_4bit and cfg.adapter is not None,
-                torch_dtype=torch_dtype,
-                device_map="auto" if cfg.world_size == 1 else cfg.device_map,
+                torch_dtype=cfg.torch_dtype,
                 **model_kwargs,
             )
         # elif model_type == "GPTNeoXForCausalLM" and cfg.flash_attention:
@@ -258,10 +269,10 @@ def load_model(
         elif model_type and not cfg.trust_remote_code:
             model = getattr(transformers, model_type).from_pretrained(
                 base_model,
+                device_map=cfg.device_map,
                 load_in_8bit=cfg.load_in_8bit and cfg.adapter is not None,
                 load_in_4bit=cfg.load_in_4bit and cfg.adapter is not None,
-                torch_dtype=torch_dtype,
-                device_map=cfg.device_map,
+                torch_dtype=cfg.torch_dtype,
                 trust_remote_code=cfg.trust_remote_code or False,
                 **model_kwargs,
             )
@@ -289,10 +300,10 @@ def load_model(
             model = AutoModelForCausalLM.from_pretrained(
                 base_model,
                 config=config,
+                device_map=cfg.device_map,
                 load_in_8bit=cfg.load_in_8bit and cfg.adapter is not None,
                 load_in_4bit=cfg.load_in_4bit and cfg.adapter is not None,
-                torch_dtype=torch_dtype,
-                device_map=cfg.device_map,
+                torch_dtype=cfg.torch_dtype,
                 trust_remote_code=cfg.trust_remote_code or False,
                 **model_kwargs,
             )
@@ -303,10 +314,10 @@ def load_model(
         LOG.exception(err)
         model = AutoModelForCausalLM.from_pretrained(
             base_model,
+            device_map=cfg.device_map,
             load_in_8bit=cfg.load_in_8bit and cfg.adapter is not None,
             load_in_4bit=cfg.load_in_4bit and cfg.adapter is not None,
-            torch_dtype=torch_dtype,
-            device_map=cfg.device_map,
+            torch_dtype=cfg.torch_dtype,
             trust_remote_code=cfg.trust_remote_code or False,
             **model_kwargs,
         )
@@ -340,17 +351,7 @@ def load_model(
             model, use_gradient_checkpointing=cfg.gradient_checkpointing
         )
 
-        # LlamaRMSNorm layers are in fp32 after kbit_training, so we need to
-        # convert them back to fp16/bf16 for flash-attn compatibility.
-        if cfg.flash_attention and cfg.is_llama_derived_model:
-            for name, module in model.named_modules():
-                if "norm" in name:
-                    module.to(torch_dtype)
-                if "lm_head" in name or "embed_tokens" in name:
-                    if hasattr(module, "weight"):
-                        module.to(torch_dtype)
-
-    model, lora_config = load_adapter(model, cfg, adapter)
+    model, lora_config = load_adapter(model, cfg, cfg.adapter)
 
     if cfg.ddp and not load_in_8bit:
         model.to(f"cuda:{cfg.local_rank}")
@@ -366,9 +367,6 @@ def load_model(
                     module.zeros = module.zeros.half()
                 module.scales = module.scales.half()
                 module.bias = module.bias.half()
-
-    if model.device.type == "cuda":
-        log_gpu_memory_usage(LOG, "after adapters", model.device)
 
     if (
         torch.cuda.device_count() > 1
@@ -391,6 +389,9 @@ def load_model(
 
     if cfg.flash_optimum:
         model = BetterTransformer.transform(model)
+
+    if cfg.adapter is not None:
+        log_gpu_memory_usage(LOG, "after adapters", model.device)
 
     # TODO resume_from_checkpoint handling
     return model, lora_config
@@ -422,7 +423,7 @@ def load_llama_adapter(model, cfg):
     )
 
     if cfg.lora_model_dir:
-        LOG.info("Loading pretained LORA")
+        LOG.debug("Loading pretained PEFT - llama_adapter")
         model = PeftModel.from_pretrained(
             model,
             cfg.lora_model_dir,
@@ -484,6 +485,7 @@ def load_lora(model, cfg):
     )
 
     if cfg.lora_model_dir:
+        LOG.debug("Loading pretained PEFT - LoRA")
         model = PeftModel.from_pretrained(
             model,
             cfg.lora_model_dir,
@@ -491,6 +493,22 @@ def load_lora(model, cfg):
         )
     else:
         model = get_peft_model(model, lora_config)
+
+    for name, module in model.named_modules():
+        if isinstance(module, LoraLayer):
+            module = module.to(cfg.torch_dtype)
+        if "norm" in name:
+            module = module.to(torch.float32)
+        if "lm_head" in name or "embed_tokens" in name:
+            if hasattr(module, "weight"):
+                module = module.to(cfg.torch_dtype)
+
+    # LlamaRMSNorm layers are in fp32 after kbit_training, so we need to
+    # convert them back to fp16/bf16 for flash-attn compatibility.
+    if cfg.flash_attention and cfg.is_llama_derived_model:
+        for name, module in model.named_modules():
+            if "norm" in name:
+                module = module.to(cfg.torch_dtype)
 
     model.print_trainable_parameters()
 

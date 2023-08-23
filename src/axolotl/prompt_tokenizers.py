@@ -86,15 +86,22 @@ class PromptTokenizingStrategy(abc.ABC):
             padding=False,
             return_tensors=None,
         )
+        if len(result["input_ids"]) == 0:
+            LOG.warning("Tokenizer result is empty. You may want to audit your dataset")
         if (
-            result["input_ids"][-1] != self.tokenizer.eos_token_id
+            len(result["input_ids"]) > 0
+            and result["input_ids"][-1] != self.tokenizer.eos_token_id
             and len(result["input_ids"]) < self.sequence_len
             and add_eos_token
         ):
             result["input_ids"].append(self.tokenizer.eos_token_id)
             result["attention_mask"].append(1)
 
-        if result["input_ids"][0] == self.tokenizer.bos_token_id and strip_bos_token:
+        if (
+            len(result["input_ids"]) > 0
+            and result["input_ids"][0] == self.tokenizer.bos_token_id
+            and strip_bos_token
+        ):
             result["input_ids"] = result["input_ids"][1:]
             result["attention_mask"] = result["attention_mask"][1:]
 
