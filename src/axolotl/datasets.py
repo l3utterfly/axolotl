@@ -41,7 +41,7 @@ class TokenizedPromptDataset(Dataset):
         return dataset.map(
             self.prompt_tokenizer.tokenize_prompt,
             num_proc=num_proc,
-            remove_columns=features,
+            remove_columns=[],
         )
 
 
