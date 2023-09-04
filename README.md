@@ -163,6 +163,8 @@ accelerate launch scripts/finetune.py examples/openllama-3b/lora.yml \
   ```
   </details>
 
+- Windows: Please use WSL or Docker!
+
 ### Dataset
 
 Axolotl supports a variety of dataset formats. Below are some of the formats you can use.
@@ -328,6 +330,15 @@ See [examples](examples) for quick start. It is recommended to duplicate and mod
       name: enron_emails
       type: completion # format from earlier
 
+  # huggingface repo with multiple named configurations/subsets
+  datasets:
+    - path: bigcode/commitpackft
+      name:
+        - ruby
+        - python
+        - typescript
+      type: ... # unimplemented custom format
+
   # local
   datasets:
     - path: data.jsonl # or json
@@ -407,6 +418,10 @@ fp16: true
 # Use CUDA tf32
 tf32: true # require >=ampere
 
+# No AMP (automatic mixed precision)
+bfloat16: true # require >=ampere
+float16: true
+
 # a list of one or more datasets to finetune the model with
 datasets:
   # hf dataset repo | "json" for local dataset, make sure to fill data_files
@@ -459,6 +474,9 @@ dataset_shard_idx:
 # the maximum length of an input to train with, this should typically be less than 2048
 # as most models have a token/context limit of 2048
 sequence_len: 2048
+# pad inputs so each step uses constant sized buffers
+# this will reduce memory fragmentation and may prevent OOMs, by re-using memory more efficiently
+pad_to_sequence_len:
 # max sequence length to concatenate training samples together up to
 # inspired by StackLLaMA. see https://huggingface.co/blog/stackllama#supervised-fine-tuning
 # FutureWarning: This will soon be DEPRECATED
@@ -493,6 +511,12 @@ lora_modules_to_save:
 lora_out_dir:
 lora_fan_in_fan_out: false
 
+# ReLoRA configuration
+# must use either 'lora' or 'qlora' adapter, and does not support fsdp or deepspeed
+relora_steps: # number of steps per ReLoRA restart
+relora_warmup_steps: # number of per-restart warmup steps
+relora_cpu_offload: # true to perform lora weight merges on cpu during restarts, for modest gpu memory savings
+
 # wandb configuration if you're using it
 wandb_mode: # "offline" to save run metadata locally and not sync to the server, "disabled" to turn off wandb
 wandb_project: # your wandb project name
@@ -515,7 +539,7 @@ lr_quadratic_warmup:
 logging_steps:
 save_strategy: # set to `no` to skip checkpoint saves
 save_steps: # leave empty to save at each epoch
-eval_steps:
+eval_steps: # leave empty to eval at each epoch
 save_total_limit: # checkpoints saved at a time
 max_steps:
 
@@ -601,11 +625,13 @@ fsdp_config:
 # Deepspeed config path
 deepspeed:
 
+# Advanced DDP Arguments
+ddp_timeout:
+ddp_bucket_cap_mb:
+ddp_broadcast_buffers:
+
 # Path to torch distx for optim 'adamw_anyprecision'
 torchdistx_path:
-
-# Set padding for data collator to 'longest'
-collator_pad_to_longest:
 
 # Set to HF dataset for type: 'completion' for streaming instead of pre-tokenize
 pretraining_dataset:
@@ -626,7 +652,7 @@ strict:
 
 Run
 ```bash
-accelerate launch scripts/finetune.py configs/your_config.yml
+accelerate launch scripts/finetune.py your_config.yml
 ```
 
 #### Multi-GPU

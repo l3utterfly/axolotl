@@ -6,6 +6,7 @@ import os
 import torch
 
 from axolotl.utils.bench import log_gpu_memory_usage
+from axolotl.utils.models import load_model_config
 
 LOG = logging.getLogger("axolotl")
 
@@ -69,6 +70,16 @@ def normalize_config(cfg):
     else:
         cfg.torch_dtype = torch.float32
 
+    model_config = load_model_config(cfg)
+
+    # figure out if the model is llama
+    cfg.is_llama_derived_model = (
+        (hasattr(model_config, "model_type") and model_config.model_type == "llama")
+        or cfg.is_llama_derived_model
+        or "llama" in cfg.base_model
+        or (cfg.model_type and "llama" in cfg.model_type.lower())
+    )
+
     log_gpu_memory_usage(LOG, "baseline", cfg.device)
 
 
@@ -125,6 +136,19 @@ def validate_config(cfg):
 
     if not cfg.load_in_8bit and cfg.adapter == "lora":
         LOG.warning("We recommend setting `load_in_8bit: true` for LORA finetuning")
+
+    if cfg.relora_steps:
+        if cfg.adapter not in ("lora", "qlora"):
+            raise ValueError("cfg.adapter must be lora or qlora to use ReLoRA")
+
+        if cfg.fsdp:
+            raise ValueError("fsdp not supported with ReLoRA")
+
+        if cfg.deepspeed:
+            raise ValueError("deepspeed not supported with ReLoRA")
+
+        if cfg.lr_scheduler == "one_cycle":
+            raise ValueError("ReLoRA is not compatible with the one_cycle scheduler")
 
     if cfg.trust_remote_code:
         LOG.warning(
