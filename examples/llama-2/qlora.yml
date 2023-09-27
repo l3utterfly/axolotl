@@ -1,5 +1,5 @@
-base_model: meta-llama/Llama-2-7b-hf
-base_model_config: meta-llama/Llama-2-7b-hf
+base_model: NousResearch/Llama-2-7b-hf
+base_model_config: NousResearch/Llama-2-7b-hf
 model_type: LlamaForCausalLM
 tokenizer_type: LlamaTokenizer
 is_llama_derived_model: true
@@ -20,6 +20,7 @@ lora_model_dir:
 
 sequence_len: 4096
 sample_packing: true
+pad_to_sequence_len: true
 
 lora_r: 32
 lora_alpha: 16
@@ -57,6 +58,7 @@ flash_attention: true
 
 warmup_steps: 10
 eval_steps: 20
+eval_table_size:
 save_steps:
 debug:
 deepspeed:

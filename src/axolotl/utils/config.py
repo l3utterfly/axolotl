@@ -4,6 +4,7 @@ import logging
 import os
 
 import torch
+from transformers.utils import is_torch_bf16_gpu_available
 
 from axolotl.utils.bench import log_gpu_memory_usage
 from axolotl.utils.models import load_model_config
@@ -25,9 +26,11 @@ def choose_device(cfg):
             return "cpu"
 
     cfg.device = get_device()
-    if cfg.device_map != "auto":
+    if cfg.world_size == 1:
+        cfg.device_map = "auto"
+    else:
         if cfg.device.startswith("cuda"):
-            cfg.device_map = {"": cfg.local_rank}
+            cfg.device_map = {"": torch.cuda.current_device()}
         else:
             cfg.device_map = {"": cfg.device}
 
@@ -48,6 +51,8 @@ def normalize_config(cfg):
     )
     cfg.world_size = int(os.environ.get("WORLD_SIZE", 1))
     cfg.local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    cfg.eval_table_size = cfg.eval_table_size or 0
+    cfg.eval_table_max_new_tokens = cfg.eval_table_max_new_tokens or 128
     choose_device(cfg)
     cfg.ddp = cfg.ddp if cfg.ddp is not None else cfg.world_size != 1
     if cfg.ddp:
@@ -71,6 +76,7 @@ def normalize_config(cfg):
         cfg.torch_dtype = torch.float32
 
     model_config = load_model_config(cfg)
+    cfg.model_config_type = model_config.model_type
 
     # figure out if the model is llama
     cfg.is_llama_derived_model = (
@@ -80,10 +86,34 @@ def normalize_config(cfg):
         or (cfg.model_type and "llama" in cfg.model_type.lower())
     )
 
+    # figure out if the model is falcon
+    cfg.is_falcon_derived_model = (
+        (
+            hasattr(model_config, "model_type")
+            and model_config.model_type
+            in [
+                "falcon",
+                "RefinedWebModel",
+                "RefinedWeb",
+            ]
+        )
+        or cfg.is_falcon_derived_model
+        or "falcon" in cfg.base_model
+        or (cfg.model_type and "rwforcausallm" in cfg.model_type.lower())
+    )
+
     log_gpu_memory_usage(LOG, "baseline", cfg.device)
 
 
 def validate_config(cfg):
+    if is_torch_bf16_gpu_available():
+        if not cfg.bf16 and not cfg.bfloat16:
+            LOG.info("bf16 support detected, but not enabled for this configuration.")
+    else:
+        if not cfg.merge_lora and (cfg.bf16 or cfg.bfloat16):
+            raise ValueError(
+                "bf16 requested, but AMP is not supported on this GPU. Requires Ampere series or above."
+            )
     if cfg.max_packed_sequence_len and cfg.sample_packing:
         raise ValueError(
             "please set only one of max_packed_sequence_len (deprecated soon) or sample_packing"
@@ -97,6 +127,11 @@ def validate_config(cfg):
             )
         )
 
+    if cfg.sample_packing and not cfg.pad_to_sequence_len:
+        LOG.warning(
+            "`pad_to_sequence_len: true` is recommended when using sample_packing"
+        )
+
     if cfg.gradient_accumulation_steps and cfg.batch_size:
         raise ValueError(
             "please set only one of gradient_accumulation_steps or batch_size"
@@ -108,9 +143,7 @@ def validate_config(cfg):
             "To calculate the equivalent gradient_accumulation_steps, divide batch_size / micro_batch_size / number of gpus.",
         )
     if cfg.load_4bit:
-        raise ValueError(
-            "cfg.load_4bit parameter has been deprecated and replaced by cfg.gptq"
-        )
+        raise ValueError("cfg.load_4bit parameter has been deprecated")
 
     if cfg.adapter == "qlora":
         if cfg.merge_lora:
@@ -188,6 +221,10 @@ def validate_config(cfg):
         LOG.warning(
             "You probably want to disable group_by_length as it will force a streamed dataset to download completely."
         )
+    if cfg.pretraining_dataset and not cfg.max_steps:
+        raise ValueError(
+            "max_steps must be set when using iterable pretraining_dataset, Trainer can't infer length and schedule optimizer/learning rate without it!"
+        )
 
     if any([cfg.adam_beta1, cfg.adam_beta2, cfg.adam_epsilon]) and (
         not cfg.optimizer or "adamw" not in cfg.optimizer
@@ -216,6 +253,30 @@ def validate_config(cfg):
         raise ValueError(
             "sample_packing not compatible with xformers_attention. Use flash_attention"
         )
+
+    if cfg.early_stopping_patience:
+        if not cfg.save_steps or not cfg.eval_steps:
+            raise ValueError(
+                "`early_stopping_patience` requires save_steps and eval_steps to be set. eval_steps should evenly divide save_steps."
+            )
+        if cfg.save_steps % cfg.eval_steps != 0:
+            raise ValueError(
+                "`early_stopping_patience` requires that eval_steps should evenly divide save_steps."
+            )
+
+    if cfg.model_type == "MixFormerSequentialForCausalLM" and cfg.adapter is not None:
+        LOG.warning("Use AutoModelForCausalLM for phi/MixFormer models with qLoRA")
+
+    if cfg.model_config_type == "mixformer-sequential":
+        if cfg.sample_packing:
+            if cfg.adapter is not None:
+                LOG.warning(
+                    "phi/MixFormer models are not currently compatible with LoRA and sample_packing"
+                )
+            if cfg.model_type == "AutoModelForCausalLM":
+                raise ValueError(
+                    "`model_type: MixFormerSequentialForCausalLM` required for sample_packing"
+                )
 
     # TODO
     # MPT 7b

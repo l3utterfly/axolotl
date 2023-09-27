@@ -165,3 +165,7 @@ cython_debug/
 # data
 /last_run_prepared
 /lora-out
+
+# WandB
+# wandb creates a folder to store logs for training runs
+wandb

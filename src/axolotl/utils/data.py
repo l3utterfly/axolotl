@@ -2,9 +2,8 @@
 import functools
 import hashlib
 import logging
-from hashlib import md5
 from pathlib import Path
-from typing import Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 import torch
 from datasets import (
@@ -23,7 +22,6 @@ from axolotl.prompt_tokenizers import (
     AlpacaMultipleChoicePromptTokenizingStrategy,
     AlpacaPromptTokenizingStrategy,
     AlpacaReflectionPTStrategy,
-    CompletionPromptTokenizingStrategy,
     GPTeacherPromptTokenizingStrategy,
     JeopardyPromptTokenizingStrategy,
     OpenAssistantPromptTokenizingStrategy,
@@ -32,7 +30,6 @@ from axolotl.prompt_tokenizers import (
 )
 from axolotl.prompters import (
     AlpacaPrompter,
-    CompletionPrompter,
     GPTeacherPrompter,
     JeopardyPrompter,
     MultipleChoiceConcisePrompter,
@@ -52,6 +49,13 @@ LOG = logging.getLogger("axolotl")
 DEFAULT_DATASET_PREPARED_PATH = "last_run_prepared"
 
 
+def md5(to_hash: str, encoding: str = "utf-8") -> str:
+    try:
+        return hashlib.md5(to_hash.encode(encoding), usedforsecurity=False).hexdigest()
+    except TypeError:
+        return hashlib.md5(to_hash.encode(encoding)).hexdigest()  # nosec
+
+
 def prepare_dataset(cfg, tokenizer):
     if not cfg.pretraining_dataset:
         with zero_first(is_main_process()):
@@ -68,6 +72,7 @@ def prepare_dataset(cfg, tokenizer):
         # https://discuss.huggingface.co/t/how-to-use-huggingface-trainer-streaming-datasets-without-wrapping-it-with-torchdatas-iterablewrapper/25230
         train_dataset = train_dataset.with_format("torch")
         eval_dataset = None
+        return train_dataset, eval_dataset, cfg.max_steps
 
     with zero_first(is_main_process()):
         train_dataset, eval_dataset = process_datasets_for_packing(
@@ -88,7 +93,7 @@ def load_tokenized_prepared_datasets(
 ) -> DatasetDict:
     tokenizer_name = tokenizer.__class__.__name__
     ds_hash = str(
-        md5(  # nosec
+        md5(
             (
                 str(cfg.sequence_len)
                 + "@"
@@ -97,8 +102,8 @@ def load_tokenized_prepared_datasets(
                 )
                 + "|"
                 + tokenizer_name
-            ).encode("utf-8")
-        ).hexdigest()
+            )
+        )
     )
     prepared_ds_path = (
         Path(cfg.dataset_prepared_path) / ds_hash
@@ -178,6 +183,10 @@ def load_tokenized_prepared_datasets(
                         ds_type = "parquet"
                     elif ".arrow" in d.path:
                         ds_type = "arrow"
+                    elif ".csv" in d.path:
+                        ds_type = "csv"
+                    elif ".txt" in d.path:
+                        ds_type = "text"
                     ds = load_dataset(
                         ds_type,
                         name=d.name,
@@ -320,15 +329,6 @@ def load_tokenized_prepared_datasets(
                 )
                 ds_wrapper = TokenizedPromptDataset(ds_strategy, ds)
                 datasets.append(ds_wrapper)
-            elif d_base_type == "completion":
-                ds_strategy = CompletionPromptTokenizingStrategy(
-                    CompletionPrompter(),
-                    tokenizer,
-                    cfg.train_on_inputs,
-                    cfg.sequence_len,
-                )
-                ds_wrapper = TokenizedPromptDataset(ds_strategy, ds)
-                datasets.append(ds_wrapper)
             else:
                 suffix = ""
                 if ":load_" in d.type:
@@ -374,7 +374,7 @@ def load_prepare_datasets(
         # see if we can go ahead and load the stacked dataset
         seed = f"@{str(cfg.seed)}" if cfg.seed else ""
         ds_hash = str(
-            md5(  # nosec
+            md5(
                 (
                     str(cfg.sequence_len)
                     + "@"
@@ -385,8 +385,8 @@ def load_prepare_datasets(
                     )
                     + "|"
                     + tokenizer_name
-                ).encode("utf-8")
-            ).hexdigest()
+                )
+            )
         )
         prepared_ds_path = (
             Path(cfg.dataset_prepared_path) / ds_hash
@@ -500,12 +500,8 @@ def load_prepare_datasets(
             + "|"
             + str(cfg.seed or 42)
         )
-        train_fingerprint = hashlib.md5(
-            to_hash_train.encode(), usedforsecurity=False
-        ).hexdigest()
-        test_fingerprint = hashlib.md5(
-            to_hash_test.encode(), usedforsecurity=False
-        ).hexdigest()
+        train_fingerprint = md5(to_hash_train)
+        test_fingerprint = md5(to_hash_test)
 
         with zero_first(is_main_process()):
             dataset = dataset.train_test_split(
@@ -525,9 +521,11 @@ def load_prepare_datasets(
     return train_dataset, eval_dataset
 
 
-def encode_pretraining(tokenizer, max_tokens, examples):
+def encode_pretraining(
+    tokenizer: PreTrainedTokenizerBase, max_tokens: int, examples: List[str]
+) -> Dict[str, List]:
     res = tokenizer(
-        examples["text"],
+        examples,
         truncation=True,
         max_length=max_tokens - 2,
         add_special_tokens=True,
@@ -635,6 +633,12 @@ def load_pretraining_dataset(path, tokenizer, max_tokens=2048, seed=42):
     encode = functools.partial(encode_pretraining, tokenizer, max_tokens)
     dataset = load_dataset(path, streaming=True, split="train")
     dataset = dataset.shuffle(seed=seed, buffer_size=10_000)
-    # TODO dynamically figure out which columns/features to remove
-    dataset = dataset.map(encode, batched=True, remove_columns=["text", "meta"])
+    dataset = dataset.map(
+        encode,
+        batched=True,
+        input_columns="text",
+        # remove all the existing columns after mapping since they end up having
+        # a different length than the encoded/tokenized column
+        remove_columns=dataset.features.keys(),
+    )
     return dataset

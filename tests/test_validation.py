@@ -330,6 +330,20 @@ class ValidationTest(unittest.TestCase):
 
         cfg = DictDefault(
             {
+                "sample_packing": True,
+                "pad_to_sequence_len": None,
+            }
+        )
+        with self._caplog.at_level(logging.WARNING):
+            validate_config(cfg)
+            assert any(
+                "`pad_to_sequence_len: true` is recommended when using sample_packing"
+                in record.message
+                for record in self._caplog.records
+            )
+
+        cfg = DictDefault(
+            {
                 "max_packed_sequence_len": 2048,
                 "sample_packing": True,
             }
@@ -337,3 +351,26 @@ class ValidationTest(unittest.TestCase):
         regex_exp = r".*set only one of max_packed_sequence_len \(deprecated soon\) or sample_packing.*"
         with pytest.raises(ValueError, match=regex_exp):
             validate_config(cfg)
+
+    def test_merge_lora_no_bf16_fail(self):
+        """
+        This is assumed to be run on a CPU machine, so bf16 is not supported.
+        """
+
+        cfg = DictDefault(
+            {
+                "bf16": True,
+            }
+        )
+
+        with pytest.raises(ValueError, match=r".*AMP is not supported on this GPU*"):
+            validate_config(cfg)
+
+        cfg = DictDefault(
+            {
+                "bf16": True,
+                "merge_lora": True,
+            }
+        )
+
+        validate_config(cfg)
