@@ -25,9 +25,10 @@ Features:
 - [Environment](#environment)
   - [Docker](#docker)
   - [Conda/Pip venv](#condapip-venv)
-  - [Cloud GPU](#cloud-gpu) - Latitude.sh, RunPod
+  - [Cloud GPU](#cloud-gpu) - Latitude.sh, JarvisLabs, RunPod
   - [Bare Metal Cloud GPU](#bare-metal-cloud-gpu)
   - [Windows](#windows)
+  - [Mac](#mac)
   - [Launching on public clouds via SkyPilot](#launching-on-public-clouds-via-skypilot)
 - [Dataset](#dataset)
   - [How to Add Custom Prompts](#how-to-add-custom-prompts)
@@ -97,24 +98,14 @@ Features:
 
 Get started with Axolotl in just a few steps! This quickstart guide will walk you through setting up and running a basic fine-tuning task.
 
-**Requirements**: Python >=3.9 and Pytorch >=2.1.1.
+**Requirements**: Python >=3.10 and Pytorch >=2.1.1.
 
-### For developers
 ```bash
 git clone https://github.com/OpenAccess-AI-Collective/axolotl
 cd axolotl
 
 pip3 install packaging
-```
-
-General case:
-```
 pip3 install -e '.[flash-attn,deepspeed]'
-```
-
-Mac: see https://github.com/OpenAccess-AI-Collective/axolotl/blob/13199f678b9aab39e92961323bdbce3234ee4b2b/docs/mac.md
-```
-pip3 install -e '.'
 ```
 
 ### Usage
@@ -179,7 +170,7 @@ docker run --privileged --gpus '"all"' --shm-size 10g --rm -it --name axolotl --
   </details>
 
 #### Conda/Pip venv
-  1. Install python >=**3.9**
+  1. Install python >=**3.10**
 
   2. Install pytorch stable https://pytorch.org/get-started/locally/
 
@@ -199,6 +190,7 @@ docker run --privileged --gpus '"all"' --shm-size 10g --rm -it --name axolotl --
 For cloud GPU providers that support docker images, use [`winglian/axolotl-cloud:main-latest`](https://hub.docker.com/r/winglian/axolotl-cloud/tags)
 
 - on Latitude.sh use this [direct link](https://latitude.sh/blueprint/989e0e79-3bf6-41ea-a46b-1f246e309d5c)
+- on JarvisLabs.ai use this [direct link](https://jarvislabs.ai/templates/axolotl)
 - on RunPod use this [direct link](https://runpod.io/gsc?template=v2ickqhz9s&ref=6i7fkpdz)
 
 #### Bare Metal Cloud GPU
@@ -212,11 +204,11 @@ For cloud GPU providers that support docker images, use [`winglian/axolotl-cloud
   1. Install python
   ```bash
   sudo apt update
-  sudo apt install -y python3.9
+  sudo apt install -y python3.10
 
-  sudo update-alternatives --install /usr/bin/python python /usr/bin/python3.9 1
-  sudo update-alternatives --config python # pick 3.9 if given option
-  python -V # should be 3.9
+  sudo update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1
+  sudo update-alternatives --config python # pick 3.10 if given option
+  python -V # should be 3.10
 
   ```
 
@@ -248,9 +240,31 @@ For cloud GPU providers that support docker images, use [`winglian/axolotl-cloud
   ```
   </details>
 
+##### GCP
+
+<details>
+
+<summary>Click to Expand</summary>
+
+Use a Deeplearning linux OS with cuda and pytorch installed. Then follow instructions on quickstart.
+
+Make sure to run the below to uninstall xla.
+```bash
+pip uninstall -y torch_xla[tpu]
+```
+
+</details>
+
 #### Windows
 Please use WSL or Docker!
 
+#### Mac
+
+Use the below instead of the install method in QuickStart.
+```
+pip3 install -e '.'
+```
+More info: [mac.md](/docs/mac.md)
 
 #### Launching on public clouds via SkyPilot
 To launch on GPU instances (both on-demand and spot instances) on 7+ clouds (GCP, AWS, Azure, OCI, and more), you can use [SkyPilot](https://skypilot.readthedocs.io/en/latest/index.html):
@@ -384,6 +398,15 @@ pretraining_dataset: # hf path only
   ```
 
 </details>
+
+##### Template-Free
+
+- `input_output`: template-free prompt construction
+  ```json
+   {"segments": [{"label": true|false, "text": "..."}]}
+  ```
+
+This is a special format that allows you to construct prompts without using templates. This is for advanced users who want more freedom with prompt construction.  See [these docs](docs/input_output.md) for more details.
 
 ##### Conversation
 
@@ -1070,6 +1093,10 @@ fsdp_config:
   fsdp_transformer_layer_cls_to_wrap: LlamaDecoderLayer
 ```
 
+##### FSDP + QLoRA
+
+Axolotl supports training with FSDP and QLoRA, see [these docs](docs/fsdp_qlora.md) for more information.
+
 ##### Weights & Biases Logging
 
 Make sure your `WANDB_API_KEY` environment variable is set (recommended) or you login to wandb with `wandb login`.
@@ -1288,5 +1315,7 @@ consider sponsoring the project via [GitHub Sponsors](https://github.com/sponsor
 ---
 
 #### 🥉 Bronze Sponsors - $500/mo
+
+ - [JarvisLabs.ai](https://jarvislabs.ai)
 
 ---

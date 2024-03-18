@@ -1,6 +1,7 @@
 """
 Module for pydantic models for configuration
 """
+# pylint: disable=too-many-lines
 
 import logging
 import os
@@ -128,8 +129,10 @@ class RLType(str, Enum):
 class ChatTemplate(str, Enum):
     """Chat templates configuration subset"""
 
+    alpaca = "alpaca"  # pylint: disable=invalid-name
     chatml = "chatml"  # pylint: disable=invalid-name
     inst = "inst"  # pylint: disable=invalid-name
+    gemma = "gemma"  # pylint: disable=invalid-name
 
 
 class LoftQConfig(BaseModel):
@@ -178,10 +181,23 @@ class LoraConfig(BaseModel):
     lora_dropout: Optional[float] = None
     peft_layers_to_transform: Optional[List[int]] = None
     peft: Optional[PeftConfig] = None
+    peft_use_dora: Optional[bool] = None
+    peft_use_relora: Optional[bool] = None
 
     lora_on_cpu: Optional[bool] = None
     gptq: Optional[bool] = None
     bnb_config_kwargs: Optional[Dict[str, Any]] = None
+
+    loraplus_lr_ratio: Optional[float] = Field(
+        default=None,
+        metadata={
+            "help": "loraplus learning rate ratio lr_B / lr_A. Recommended value is 2^4."
+        },
+    )
+    loraplus_lr_embedding: Optional[float] = Field(
+        default=1e-6,
+        metadata={"help": "loraplus learning rate for lora embedding layers."},
+    )
 
     merge_lora: Optional[bool] = None
 
@@ -221,6 +237,17 @@ class LoraConfig(BaseModel):
                 if not self.load_in_4bit:
                     raise ValueError("Require cfg.load_in_4bit to be True for qlora")
         return self
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_quantized_dora(cls, data):
+        if data.get("peft_use_dora") and (
+            data.get("load_in_8bit") or data.get("load_in_4bit")
+        ):
+            raise ValueError(
+                "`peft_use_dora` is not currently compatible with quantized weights."
+            )
+        return data
 
 
 class ReLoRAConfig(BaseModel):
@@ -488,10 +515,12 @@ class AxolotlInputConfig(
 
     neftune_noise_alpha: Optional[float] = None
 
-    max_memory: Optional[Union[int, str]] = None
+    max_memory: Optional[
+        Dict[Union[int, Literal["cpu", "disk"]], Union[int, str]]
+    ] = None
     gpu_memory_limit: Optional[Union[int, str]] = None
 
-    chat_template: Optional[Union[Literal["chatml", "inst"], ChatTemplate]] = None
+    chat_template: Optional[ChatTemplate] = None
     default_system_message: Optional[str] = None
 
     # INTERNALS - document for now, generally not set externally
@@ -822,7 +851,7 @@ class AxolotlInputConfig(
     @model_validator(mode="after")
     def check_early_stopping(self):
         if self.early_stopping_patience:
-            if not self.save_steps or self.eval_steps:
+            if not self.save_steps or not self.eval_steps:
                 raise ValueError(
                     "`early_stopping_patience` requires save_steps and eval_steps to be set. eval_steps should evenly divide save_steps."
                 )
@@ -965,4 +994,11 @@ class AxolotlConfigWCapabilities(AxolotlInputConfig):
                 "This may work on H100s."
             )
 
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def check_fsdp_deepspeed(cls, data):
+        if data.get("deepspeed") and data.get("fsdp"):
+            raise ValueError("deepspeed and fsdp cannot be used together.")
         return data
