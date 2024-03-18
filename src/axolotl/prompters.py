@@ -282,6 +282,9 @@ class ShareGPTPrompter(Prompter):  # pylint: disable=too-few-public-methods
                 self._conversation = get_conv_template(conversation)
         else:
             self._conversation = get_conv_template("vicuna_v1.1")
+
+        # self._conversation.sep2 = '<|endoftext|>'
+
         if role_key_human:
             self.role_key_human = role_key_human
         if role_key_model:
@@ -321,6 +324,8 @@ class ShareGPTPrompter(Prompter):  # pylint: disable=too-few-public-methods
             ):
                 LOG.warning(f"{SHAREGPT_ASSERTION_FAILED_ROLE}: {sentence}")
             conv.append_message(role, sentence["value"])
+
+        # conv.sep2 = '<|endoftext|>'
 
         return conv.get_turns()
 
