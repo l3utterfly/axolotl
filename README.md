@@ -13,6 +13,9 @@ Features:
 - Log results and optionally checkpoints to wandb or mlflow
 - And more!
 
+<a href="https://www.phorm.ai/query?projectId=e315ba4a-4e14-421f-ab05-38a1f9076f25">
+  <img alt="phorm.ai" src="https://img.shields.io/badge/Phorm-Ask_AI-%23F2777A.svg?&logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNSIgaGVpZ2h0PSI0IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgogIDxwYXRoIGQ9Ik00LjQzIDEuODgyYTEuNDQgMS40NCAwIDAgMS0uMDk4LjQyNmMtLjA1LjEyMy0uMTE1LjIzLS4xOTIuMzIyLS4wNzUuMDktLjE2LjE2NS0uMjU1LjIyNmExLjM1MyAxLjM1MyAwIDAgMS0uNTk1LjIxMmMtLjA5OS4wMTItLjE5Mi4wMTQtLjI3OS4wMDZsLTEuNTkzLS4xNHYtLjQwNmgxLjY1OGMuMDkuMDAxLjE3LS4xNjkuMjQ2LS4xOTFhLjYwMy42MDMgMCAwIDAgLjItLjEwNi41MjkuNTI5IDAgMCAwIC4xMzgtLjE3LjY1NC42NTQgMCAwIDAgLjA2NS0uMjRsLjAyOC0uMzJhLjkzLjkzIDAgMCAwLS4wMzYtLjI0OS41NjcuNTY3IDAgMCAwLS4xMDMtLjIuNTAyLjUwMiAwIDAgMC0uMTY4LS4xMzguNjA4LjYwOCAwIDAgMC0uMjQtLjA2N0wyLjQzNy43MjkgMS42MjUuNjcxYS4zMjIuMzIyIDAgMCAwLS4yMzIuMDU4LjM3NS4zNzUgMCAwIDAtLjExNi4yMzJsLS4xMTYgMS40NS0uMDU4LjY5Ny0uMDU4Ljc1NEwuNzA1IDRsLS4zNTctLjA3OUwuNjAyLjkwNkMuNjE3LjcyNi42NjMuNTc0LjczOS40NTRhLjk1OC45NTggMCAwIDEgLjI3NC0uMjg1Ljk3MS45NzEgMCAwIDEgLjMzNy0uMTRjLjExOS0uMDI2LjIyNy0uMDM0LjMyNS0uMDI2TDMuMjMyLjE2Yy4xNTkuMDE0LjMzNi4wMy40NTkuMDgyYTEuMTczIDEuMTczIDAgMCAxIC41NDUuNDQ3Yy4wNi4wOTQuMTA5LjE5Mi4xNDQuMjkzYTEuMzkyIDEuMzkyIDAgMCAxIC4wNzguNThsLS4wMjkuMzJaIiBmaWxsPSIjRjI3NzdBIi8+CiAgPHBhdGggZD0iTTQuMDgyIDIuMDA3YTEuNDU1IDEuNDU1IDAgMCAxLS4wOTguNDI3Yy0uMDUuMTI0LS4xMTQuMjMyLS4xOTIuMzI0YTEuMTMgMS4xMyAwIDAgMS0uMjU0LjIyNyAxLjM1MyAxLjM1MyAwIDAgMS0uNTk1LjIxNGMtLjEuMDEyLS4xOTMuMDE0LS4yOC4wMDZsLTEuNTYtLjEwOC4wMzQtLjQwNi4wMy0uMzQ4IDEuNTU5LjE1NGMuMDkgMCAuMTczLS4wMS4yNDgtLjAzM2EuNjAzLjYwMyAwIDAgMCAuMi0uMTA2LjUzMi41MzIgMCAwIDAgLjEzOS0uMTcyLjY2LjY2IDAgMCAwIC4wNjQtLjI0MWwuMDI5LS4zMjFhLjk0Ljk0IDAgMCAwLS4wMzYtLjI1LjU3LjU3IDAgMCAwLS4xMDMtLjIwMi41MDIuNTAyIDAgMCAwLS4xNjgtLjEzOC42MDUuNjA1IDAgMCAwLS4yNC0uMDY3TDEuMjczLjgyN2MtLjA5NC0uMDA4LS4xNjguMDEtLjIyMS4wNTUtLjA1My4wNDUtLjA4NC4xMTQtLjA5Mi4yMDZMLjcwNSA0IDAgMy45MzhsLjI1NS0yLjkxMUExLjAxIDEuMDEgMCAwIDEgLjM5My41NzIuOTYyLjk2MiAwIDAgMSAuNjY2LjI4NmEuOTcuOTcgMCAwIDEgLjMzOC0uMTRDMS4xMjIuMTIgMS4yMy4xMSAxLjMyOC4xMTlsMS41OTMuMTRjLjE2LjAxNC4zLjA0Ny40MjMuMWExLjE3IDEuMTcgMCAwIDEgLjU0NS40NDhjLjA2MS4wOTUuMTA5LjE5My4xNDQuMjk1YTEuNDA2IDEuNDA2IDAgMCAxIC4wNzcuNTgzbC0uMDI4LjMyMloiIGZpbGw9IndoaXRlIi8+CiAgPHBhdGggZD0iTTQuMDgyIDIuMDA3YTEuNDU1IDEuNDU1IDAgMCAxLS4wOTguNDI3Yy0uMDUuMTI0LS4xMTQuMjMyLS4xOTIuMzI0YTEuMTMgMS4xMyAwIDAgMS0uMjU0LjIyNyAxLjM1MyAxLjM1MyAwIDAgMS0uNTk1LjIxNGMtLjEuMDEyLS4xOTMuMDE0LS4yOC4wMDZsLTEuNTYtLjEwOC4wMzQtLjQwNi4wMy0uMzQ4IDEuNTU5LjE1NGMuMDkgMCAuMTczLS4wMS4yNDgtLjAzM2EuNjAzLjYwMyAwIDAgMCAuMi0uMTA2LjUzMi41MzIgMCAwIDAgLjEzOS0uMTcyLjY2LjY2IDAgMCAwIC4wNjQtLjI0MWwuMDI5LS4zMjFhLjk0Ljk0IDAgMCAwLS4wMzYtLjI1LjU3LjU3IDAgMCAwLS4xMDMtLjIwMi41MDIuNTAyIDAgMCAwLS4xNjgtLjEzOC42MDUuNjA1IDAgMCAwLS4yNC0uMDY3TDEuMjczLjgyN2MtLjA5NC0uMDA4LS4xNjguMDEtLjIyMS4wNTUtLjA1My4wNDUtLjA4NC4xMTQtLjA5Mi4yMDZMLjcwNSA0IDAgMy45MzhsLjI1NS0yLjkxMUExLjAxIDEuMDEgMCAwIDEgLjM5My41NzIuOTYyLjk2MiAwIDAgMSAuNjY2LjI4NmEuOTcuOTcgMCAwIDEgLjMzOC0uMTRDMS4xMjIuMTIgMS4yMy4xMSAxLjMyOC4xMTlsMS41OTMuMTRjLjE2LjAxNC4zLjA0Ny40MjMuMWExLjE3IDEuMTcgMCAwIDEgLjU0NS40NDhjLjA2MS4wOTUuMTA5LjE5My4xNDQuMjk1YTEuNDA2IDEuNDA2IDAgMCAxIC4wNzcuNTgzbC0uMDI4LjMyMloiIGZpbGw9IndoaXRlIi8+Cjwvc3ZnPgo=">
+</a>
 
 <table>
 <tr>
@@ -29,6 +32,7 @@ Features:
   - [Bare Metal Cloud GPU](#bare-metal-cloud-gpu)
   - [Windows](#windows)
   - [Mac](#mac)
+  - [Google Colab](#google-colab)
   - [Launching on public clouds via SkyPilot](#launching-on-public-clouds-via-skypilot)
 - [Dataset](#dataset)
   - [How to Add Custom Prompts](#how-to-add-custom-prompts)
@@ -39,8 +43,8 @@ Features:
   - [Merge LORA to Base](#merge-lora-to-base)
   - [Special Tokens](#special-tokens)
 - Advanced Topics
-  - [Multipack](./docs/multipack.md)<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M17 13.5v6H5v-12h6m3-3h6v6m0-6-9 9" class="icon_svg-stroke" stroke="#666" stroke-width="1.5" fill="none" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round"></path></svg>
-  - [RLHF & DPO](./docs/rlhf.md)<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M17 13.5v6H5v-12h6m3-3h6v6m0-6-9 9" class="icon_svg-stroke" stroke="#666" stroke-width="1.5" fill="none" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+  - [Multipack](./docs/multipack.qmd)<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M17 13.5v6H5v-12h6m3-3h6v6m0-6-9 9" class="icon_svg-stroke" stroke="#666" stroke-width="1.5" fill="none" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+  - [RLHF & DPO](./docs/rlhf.qmd)<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M17 13.5v6H5v-12h6m3-3h6v6m0-6-9 9" class="icon_svg-stroke" stroke="#666" stroke-width="1.5" fill="none" fill-rule="evenodd" stroke-linecap="round" stroke-linejoin="round"></path></svg>
 - [Common Errors](#common-errors-)
   - [Tokenization Mismatch b/w Training & Inference](#tokenization-mismatch-bw-inference--training)
 - [Debugging Axolotl](#debugging-axolotl)
@@ -146,7 +150,7 @@ accelerate launch -m axolotl.cli.train https://raw.githubusercontent.com/OpenAcc
   ```
 
 >[!Tip]
-> If you want to debug axolotl or prefer to use Docker as your development environment, see the [debugging guide's section on Docker](docs/debugging.md#debugging-with-docker).
+> If you want to debug axolotl or prefer to use Docker as your development environment, see the [debugging guide's section on Docker](docs/debugging.qmd#debugging-with-docker).
 
   <details>
 
@@ -264,7 +268,11 @@ Use the below instead of the install method in QuickStart.
 ```
 pip3 install -e '.'
 ```
-More info: [mac.md](/docs/mac.md)
+More info: [mac.md](/docs/mac.qmd)
+
+#### Google Colab
+
+Please use this example [notebook](examples/colab-notebooks/colab-axolotl-example.ipynb).
 
 #### Launching on public clouds via SkyPilot
 To launch on GPU instances (both on-demand and spot instances) on 7+ clouds (GCP, AWS, Azure, OCI, and more), you can use [SkyPilot](https://skypilot.readthedocs.io/en/latest/index.html):
@@ -406,7 +414,7 @@ pretraining_dataset: # hf path only
    {"segments": [{"label": true|false, "text": "..."}]}
   ```
 
-This is a special format that allows you to construct prompts without using templates. This is for advanced users who want more freedom with prompt construction.  See [these docs](docs/input_output.md) for more details.
+This is a special format that allows you to construct prompts without using templates. This is for advanced users who want more freedom with prompt construction.  See [these docs](docs/input_output.qmd) for more details.
 
 ##### Conversation
 
@@ -648,9 +656,13 @@ datasets:
     train_on_split: train # Optional[str] name of dataset split to load from
 
     # Optional[str] fastchat conversation type, only used with type: sharegpt
-    conversation:  # Options (see Conversation 'name'): https://github.com/lm-sys/FastChat/blob/main/fastchat/conversation.py
+    conversation: # Options (see Conversation 'name'): https://github.com/lm-sys/FastChat/blob/main/fastchat/conversation.py
     field_human: # Optional[str]. Human key to use for conversation.
     field_model: # Optional[str]. Assistant key to use for conversation.
+    # Add additional keys from your dataset as input or output roles
+    roles:
+      input: # Optional[List[str]]. These will be masked based on train_on_input
+      output: # Optional[List[str]].
 
   # Custom user instruction prompt
   - path: repo
@@ -674,6 +686,10 @@ datasets:
 
       # For `completion` datsets only, uses the provided field instead of `text` column
       field:
+
+# If false, the datasets will not be shuffled and will keep their original order in `datasets`.
+# The same applies to the `test_datasets` option and the `pretraining_dataset` option. Default is true.
+shuffle_merged_datasets: true
 
 # A list of one or more datasets to eval the model with.
 # You can use either test_datasets, or val_set_size, but not both.
@@ -856,7 +872,7 @@ group_by_length: false
 gradient_checkpointing: false
 # additional kwargs to pass to the trainer for gradient checkpointing
 # gradient_checkpointing_kwargs:
-#   use_reentrant: false
+#   use_reentrant: true
 
 # Stop training after this many evaluation losses have increased in a row
 # https://huggingface.co/transformers/v4.2.2/_modules/transformers/trainer_callback.html#EarlyStoppingCallback
@@ -896,7 +912,26 @@ lr_div_factor: # Learning rate div factor
 # - paged_adamw_8bit
 # - paged_lion_32bit
 # - paged_lion_8bit
+# - galore_adamw
+# - galore_adamw_8bit
+# - galore_adafactor
+# - galore_adamw_layerwise
+# - galore_adamw_8bit_layerwise
+# - galore_adafactor_layerwise
 optimizer:
+# Dictionary of arguments to pass to the optimizer
+optim_args:
+# For Galore Optimizers the following optim_args are available
+# rank:  # type: int
+# update_proj_gap  # type: int
+# scale  # type: float
+# proj_type:  # type: str, default = std
+
+# The target modules to optimize, i.e. the module names that you would like to train, right now this is used only for GaLore algorithm
+optim_target_modules:
+# - self_attn  # for llama
+# - mlp
+
 # Specify weight decay
 weight_decay:
 # adamw hyperparams
@@ -1095,7 +1130,7 @@ fsdp_config:
 
 ##### FSDP + QLoRA
 
-Axolotl supports training with FSDP and QLoRA, see [these docs](docs/fsdp_qlora.md) for more information.
+Axolotl supports training with FSDP and QLoRA, see [these docs](docs/fsdp_qlora.qmd) for more information.
 
 ##### Weights & Biases Logging
 
@@ -1174,7 +1209,7 @@ although this will be very slow, and using the config options above are recommen
 
 ## Common Errors 🧰
 
-See also the [FAQ's](./docs/faq.md) and [debugging guide](docs/debugging.md).
+See also the [FAQ's](./docs/faq.qmd) and [debugging guide](docs/debugging.qmd).
 
 > If you encounter a 'Cuda out of memory' error, it means your GPU ran out of memory during the training process. Here's how to resolve it:
 
@@ -1208,7 +1243,7 @@ It's safe to ignore it.
 
 > NCCL Timeouts during training
 
-See the [NCCL](docs/nccl.md) guide.
+See the [NCCL](docs/nccl.qmd) guide.
 
 
 ### Tokenization Mismatch b/w Inference & Training
@@ -1226,7 +1261,7 @@ Having misalignment between your prompts during training and inference can cause
 
 ## Debugging Axolotl
 
-See [this debugging guide](docs/debugging.md) for tips on debugging Axolotl, along with an example configuration for debugging with VSCode.
+See [this debugging guide](docs/debugging.qmd) for tips on debugging Axolotl, along with an example configuration for debugging with VSCode.
 
 ## Need help? 🙋
 

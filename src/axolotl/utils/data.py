@@ -1,4 +1,5 @@
 """Module containing data utilities"""
+
 import functools
 import hashlib
 import logging
@@ -134,7 +135,7 @@ def load_tokenized_prepared_datasets(
     split="train",
 ) -> Tuple[DatasetDict, List[Prompter]]:
     cfg_datasets = cfg.test_datasets if split == "test" else cfg.datasets
-    tokenizer_name = tokenizer.__class__.__name__
+    tokenizer_name = cfg.tokenizer_config
     ds_hash = str(
         md5(
             (
@@ -223,7 +224,7 @@ def load_tokenized_prepared_datasets(
                     token=use_auth_token,
                 )
                 ds_from_hub = True
-            except (FileNotFoundError, ConnectionError, HFValidationError):
+            except (FileNotFoundError, ConnectionError, HFValidationError, ValueError):
                 pass
 
             ds_from_cloud = False
@@ -290,14 +291,17 @@ def load_tokenized_prepared_datasets(
             local_path = Path(config_dataset.path)
             if local_path.exists():
                 if local_path.is_dir():
-                    # TODO dirs with arrow or parquet files could be loaded with `load_from_disk`
-                    ds = load_dataset(
-                        config_dataset.path,
-                        name=config_dataset.name,
-                        data_files=config_dataset.data_files,
-                        streaming=False,
-                        split=None,
-                    )
+                    if config_dataset.data_files:
+                        ds_type = get_ds_type(config_dataset)
+                        ds = load_dataset(
+                            ds_type,
+                            name=config_dataset.name,
+                            data_files=config_dataset.data_files,
+                            streaming=False,
+                            split=None,
+                        )
+                    else:
+                        ds = load_from_disk(config_dataset.path)
                 elif local_path.is_file():
                     ds_type = get_ds_type(config_dataset)
 
@@ -415,8 +419,11 @@ def load_tokenized_prepared_datasets(
         dataset = concatenate_datasets(datasets)
 
         if len(datasets) > 1:
-            LOG.info("shuffle merged datasets")
-            dataset = dataset.shuffle(seed=seed)
+            if cfg.shuffle_merged_datasets:
+                LOG.debug("shuffle merged datasets")
+                dataset = dataset.shuffle(seed=seed)
+            else:
+                LOG.debug("NOT shuffling merged datasets")
 
         dataset, _ = process_datasets_for_packing(cfg, dataset, None)
 
@@ -819,7 +826,11 @@ def wrap_pretraining_dataset(
     else:
         encode = functools.partial(encode_pretraining, tokenizer, max_tokens)
 
-    dataset = dataset.shuffle(seed=seed, buffer_size=buffer_size)
+    if cfg.shuffle_merged_datasets:
+        dataset = dataset.shuffle(seed=seed, buffer_size=buffer_size)
+    else:
+        LOG.debug("NOT shuffling merged pretraining datasets")
+
     dataset = dataset.map(
         encode,
         batched=True,
