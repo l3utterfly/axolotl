@@ -1,6 +1,7 @@
 """
 Module for pydantic models for configuration
 """
+
 # pylint: disable=too-many-lines
 
 import logging
@@ -61,7 +62,11 @@ class RemappedParameters(BaseModel):
 class PretrainingDataset(BaseModel):
     """pretraining dataset configuration subset"""
 
+    name: Optional[str] = None
     path: Optional[str] = None
+    split: Optional[str] = "train"
+    text_column: Optional[str] = "text"
+    type: Optional[str] = "pretrain"
 
 
 class UserDefinedPrompterType(BaseModel):
@@ -93,6 +98,7 @@ class SFTDataset(BaseModel):
     ds_type: Optional[str] = None
     train_on_split: Optional[str] = None
 
+    field: Optional[str] = None
     field_human: Optional[str] = None
     field_model: Optional[str] = None
 
@@ -136,6 +142,7 @@ class ChatTemplate(str, Enum):
     chatml = "chatml"  # pylint: disable=invalid-name
     inst = "inst"  # pylint: disable=invalid-name
     gemma = "gemma"  # pylint: disable=invalid-name
+    cohere = "cohere"  # pylint: disable=invalid-name
 
 
 class LoftQConfig(BaseModel):
@@ -236,17 +243,6 @@ class LoraConfig(BaseModel):
                     raise ValueError("Require cfg.load_in_4bit to be True for qlora")
         return self
 
-    @model_validator(mode="before")
-    @classmethod
-    def validate_quantized_dora(cls, data):
-        if data.get("peft_use_dora") and (
-            data.get("load_in_8bit") or data.get("load_in_4bit")
-        ):
-            raise ValueError(
-                "`peft_use_dora` is not currently compatible with quantized weights."
-            )
-        return data
-
 
 class ReLoRAConfig(BaseModel):
     """ReLoRA configuration subset"""
@@ -263,6 +259,7 @@ class ModelInputConfig(BaseModel):
 
     base_model: str
     base_model_config: Optional[str] = None
+    cls_model_config: Optional[str] = None
     tokenizer_config: Optional[str] = None
     tokenizer_use_fast: Optional[bool] = None
     tokenizer_legacy: Optional[bool] = None
@@ -370,6 +367,23 @@ class MLFlowConfig(BaseModel):
     hf_mlflow_log_artifacts: Optional[bool] = None
 
 
+class LISAConfig(BaseModel):
+    """LISA options"""
+
+    lisa_n_layers: Optional[int] = Field(
+        default=None,
+        metadata={"help": "the number of activate layers in LISA"},
+    )
+    lisa_step_interval: Optional[int] = Field(
+        default=None,
+        metadata={"help": "how often to switch layers in LISA"},
+    )
+    lisa_layers_attribute: Optional[str] = Field(
+        default="model.layers",
+        metadata={"help": "path under the model to access the layers"},
+    )
+
+
 class WandbConfig(BaseModel):
     """wandb configuration subset"""
 
@@ -404,6 +418,7 @@ class AxolotlInputConfig(
     HyperparametersConfig,
     WandbConfig,
     MLFlowConfig,
+    LISAConfig,
     RemappedParameters,
     DeprecatedParameters,
     BaseModel,
@@ -430,7 +445,7 @@ class AxolotlInputConfig(
     dataset_shard_idx: Optional[int] = None
 
     pretraining_dataset: Optional[  # type: ignore
-        conlist(Union[SFTDataset, PretrainingDataset], min_length=1)
+        conlist(Union[PretrainingDataset, SFTDataset], min_length=1)
     ] = Field(
         default=None, metadata={"help": {"streaming dataset to use for pretraining"}}
     )
@@ -464,6 +479,7 @@ class AxolotlInputConfig(
     eval_causal_lm_metrics: Optional[List[str]] = None
     do_bench_eval: Optional[bool] = None
     bench_dataset: Optional[str] = None
+    bench_split: Optional[str] = None
     metric_for_best_model: Optional[str] = None
     greater_is_better: Optional[bool] = None
 
@@ -479,15 +495,33 @@ class AxolotlInputConfig(
 
     # torch_dtype: Optional[torch.dtype]
 
-    gradient_checkpointing: Optional[bool] = Field(default=False)
+    gradient_checkpointing: Optional[Union[Literal["unsloth"], bool]] = Field(
+        default=False
+    )
     gradient_checkpointing_kwargs: Optional[Dict[str, Any]] = None
 
     unfrozen_parameters: Optional[List[str]] = None
 
     sequence_len: int = Field(default=512)
+    min_sample_len: Optional[int] = None
     sample_packing: Optional[bool] = None
     eval_sample_packing: Optional[bool] = None
     pad_to_sequence_len: Optional[bool] = None
+    curriculum_sampling: Optional[bool] = None
+
+    # for PoSE context length extension
+    use_pose: Optional[bool] = None
+    pose_split_on_token_ids: Optional[List[int]] = None
+    pose_max_context_len: Optional[int] = None
+    pose_num_chunks: Optional[int] = None
+
+    pretrain_multipack_buffer_size: Optional[int] = 10_000
+    pretrain_multipack_attn: Optional[bool] = Field(
+        default=True,
+        metadata={
+            "help": "whether to prevent cross attention for packed sequences during pretraining",
+        },
+    )
 
     xformers_attention: Optional[bool] = None
     sdp_attention: Optional[bool] = None
@@ -626,6 +660,20 @@ class AxolotlInputConfig(
 
     @model_validator(mode="before")
     @classmethod
+    def check_sample_packing_wo_flash(cls, data):
+        if (
+            data.get("sample_packing")
+            and not data.get("flash_attention")
+            and not data.get("sdp_attention")
+        ):
+            LOG.warning(
+                "sample_packing without flash_attention or sdp_attention does not handle cross-attention."
+            )
+
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
     def check_sample_packing_w_rl(cls, data):
         if data.get("sample_packing") and data.get("rl"):
             raise ValueError("`sample_packing: true` does not work with RLHF training")
@@ -732,11 +780,11 @@ class AxolotlInputConfig(
     @model_validator(mode="before")
     @classmethod
     def check_push_save(cls, data):
-        if data.get("hub_model_id") and not (
-            data.get("save_steps") or data.get("saves_per_epoch")
+        if data.get("hub_model_id") and (
+            data.get("save_strategy") not in ["steps", "epoch", None]
         ):
             LOG.warning(
-                "hub_model_id is set without any models being saved. To save a model, set either save_steps or saves_per_epoch."
+                "hub_model_id is set without any models being saved. To save a model, set save_strategy."
             )
         return data
 
@@ -935,9 +983,16 @@ class AxolotlInputConfig(
 
     @model_validator(mode="before")
     @classmethod
-    def check_fsdp_w_8bit_optimizer(cls, data):
-        if data.get("fsdp") and "bnb" in data.get("optimizer", ""):
-            raise ValueError(f"FSDP not compatible with {data.get('optimizer')}")
+    def check_fsdp_offload_w_8bit_optimizer(cls, data):
+        if (
+            data.get("fsdp")
+            and "8bit" in data.get("optimizer", "")
+            and data.get("fsdp_config")
+            and data["fsdp_config"].get("fsdp_offload_params")
+        ):
+            raise ValueError(
+                f"FSDP Offload not compatible with {data.get('optimizer')}"
+            )
         return data
 
     @model_validator(mode="before")
