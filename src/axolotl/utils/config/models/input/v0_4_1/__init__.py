@@ -143,6 +143,7 @@ class ChatTemplate(str, Enum):
     inst = "inst"  # pylint: disable=invalid-name
     gemma = "gemma"  # pylint: disable=invalid-name
     cohere = "cohere"  # pylint: disable=invalid-name
+    llama3 = "llama3"  # pylint: disable=invalid-name
 
 
 class LoftQConfig(BaseModel):
@@ -409,6 +410,17 @@ class WandbConfig(BaseModel):
         return data
 
 
+class GradioConfig(BaseModel):
+    """Gradio configuration subset"""
+
+    gradio_title: Optional[str] = None
+    gradio_share: Optional[bool] = None
+    gradio_server_name: Optional[str] = None
+    gradio_server_port: Optional[int] = None
+    gradio_max_new_tokens: Optional[int] = None
+    gradio_temperature: Optional[float] = None
+
+
 # pylint: disable=too-many-public-methods,too-many-ancestors
 class AxolotlInputConfig(
     ModelInputConfig,
@@ -419,6 +431,7 @@ class AxolotlInputConfig(
     WandbConfig,
     MLFlowConfig,
     LISAConfig,
+    GradioConfig,
     RemappedParameters,
     DeprecatedParameters,
     BaseModel,
@@ -504,6 +517,9 @@ class AxolotlInputConfig(
 
     sequence_len: int = Field(default=512)
     min_sample_len: Optional[int] = None
+    max_prompt_len: int = Field(
+        default=512, metadata={"help": "maximum prompt length for RL training"}
+    )
     sample_packing: Optional[bool] = None
     eval_sample_packing: Optional[bool] = None
     pad_to_sequence_len: Optional[bool] = None
