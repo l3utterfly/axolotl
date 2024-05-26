@@ -24,6 +24,7 @@ class DeprecatedParameters(BaseModel):
     max_packed_sequence_len: Optional[int] = None
     rope_scaling: Optional[Any] = None
     noisy_embedding_alpha: Optional[float] = None
+    dpo_beta: Optional[float] = None
 
     @field_validator("max_packed_sequence_len")
     @classmethod
@@ -47,6 +48,13 @@ class DeprecatedParameters(BaseModel):
         if noisy_embedding_alpha:
             LOG.warning("noisy_embedding_alpha is deprecated, use neftune_noise_alpha")
         return noisy_embedding_alpha
+
+    @field_validator("dpo_beta")
+    @classmethod
+    def validate_dpo_beta(cls, dpo_beta):
+        if dpo_beta is not None:
+            LOG.warning("dpo_beta is deprecated, use rl_beta instead")
+        return dpo_beta
 
 
 class RemappedParameters(BaseModel):
@@ -101,6 +109,7 @@ class SFTDataset(BaseModel):
     field: Optional[str] = None
     field_human: Optional[str] = None
     field_model: Optional[str] = None
+    field_messages: Optional[str] = None
 
     roles: Optional[Dict[str, List[str]]] = None
 
@@ -126,6 +135,26 @@ class DPODataset(BaseModel):
     data_files: Optional[List[str]] = None
 
 
+class UserDefinedKTOType(BaseModel):
+    """User defined typing for KTO"""
+
+    field_system: Optional[str] = None
+    field_prompt: Optional[str] = None
+    field_completion: Optional[str] = None
+    field_label: Optional[bool] = None
+    prompt_format: Optional[str] = None
+    completion_format: Optional[str] = None
+
+
+class KTODataset(BaseModel):
+    """KTO configuration subset"""
+
+    path: Optional[str] = None
+    split: Optional[str] = None
+    type: Optional[Union[UserDefinedKTOType, str]] = None
+    data_files: Optional[List[str]] = None
+
+
 class RLType(str, Enum):
     """RL trainer type configuration subset"""
 
@@ -133,6 +162,7 @@ class RLType(str, Enum):
     ipo = "ipo"  # pylint: disable=invalid-name
     kto_pair = "kto_pair"  # pylint: disable=invalid-name
     orpo = "orpo"  # pylint: disable=invalid-name
+    kto = "kto"  # pylint: disable=invalid-name
 
 
 class ChatTemplate(str, Enum):
@@ -183,7 +213,7 @@ class LoraConfig(BaseModel):
     lora_target_modules: Optional[List[str]] = None
     lora_target_linear: Optional[bool] = None
     lora_modules_to_save: Optional[List[str]] = None
-    lora_dropout: Optional[float] = None
+    lora_dropout: Optional[float] = 0.0
     peft_layers_to_transform: Optional[List[int]] = None
     peft: Optional[PeftConfig] = None
     peft_use_dora: Optional[bool] = None
@@ -450,8 +480,8 @@ class AxolotlInputConfig(
 
     rl: Optional[RLType] = None
 
-    datasets: Optional[conlist(Union[SFTDataset, DPODataset], min_length=1)] = None  # type: ignore
-    test_datasets: Optional[conlist(Union[SFTDataset, DPODataset], min_length=1)] = None  # type: ignore
+    datasets: Optional[conlist(Union[SFTDataset, DPODataset, KTODataset], min_length=1)] = None  # type: ignore
+    test_datasets: Optional[conlist(Union[SFTDataset, DPODataset, KTODataset], min_length=1)] = None  # type: ignore
     shuffle_merged_datasets: Optional[bool] = True
     dataset_prepared_path: Optional[str] = None
     dataset_shard_num: Optional[int] = None
@@ -521,6 +551,8 @@ class AxolotlInputConfig(
         default=512, metadata={"help": "maximum prompt length for RL training"}
     )
     sample_packing: Optional[bool] = None
+    sample_packing_group_size: Optional[int] = 100_000
+    sample_packing_bin_size: Optional[int] = 200
     eval_sample_packing: Optional[bool] = None
     pad_to_sequence_len: Optional[bool] = None
     curriculum_sampling: Optional[bool] = None
@@ -549,6 +581,11 @@ class AxolotlInputConfig(
     flash_attn_fuse_mlp: Optional[bool] = None
     flash_optimum: Optional[bool] = None
 
+    unsloth_cross_entropy_loss: Optional[bool] = None
+    unsloth_lora_mlp: Optional[bool] = None
+    unsloth_lora_qkv: Optional[bool] = None
+    unsloth_lora_o: Optional[bool] = None
+
     deepspeed: Optional[Union[str, Dict[str, Any]]] = None
     fsdp: Optional[List[str]] = None
     fsdp_config: Optional[Dict[str, Any]] = None
@@ -574,10 +611,16 @@ class AxolotlInputConfig(
     logging_steps: Optional[int] = None
     early_stopping_patience: Optional[int] = None
     load_best_model_at_end: Optional[bool] = False
+    save_only_model: Optional[bool] = False
+    use_tensorboard: Optional[bool] = None
 
     neftune_noise_alpha: Optional[float] = None
 
     orpo_alpha: Optional[float] = None
+
+    kto_desirable_weight: Optional[float] = None
+    kto_undesirable_weight: Optional[float] = None
+    rl_beta: Optional[float] = None
 
     max_memory: Optional[
         Dict[Union[int, Literal["cpu", "disk"]], Union[int, str]]
@@ -877,6 +920,13 @@ class AxolotlInputConfig(
         if neftune_noise_alpha is not None and neftune_noise_alpha <= 0.0:
             raise ValueError("neftune_noise_alpha must be > 0.0")
         return neftune_noise_alpha
+
+    @model_validator(mode="after")
+    def check(self):
+        if self.dpo_beta and not self.rl_beta:
+            self.rl_beta = self.dpo_beta
+            del self.dpo_beta
+        return self
 
     @model_validator(mode="before")
     @classmethod

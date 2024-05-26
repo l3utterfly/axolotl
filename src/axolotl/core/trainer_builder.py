@@ -30,7 +30,7 @@ from transformers import (
 )
 from transformers.trainer_utils import seed_worker
 from transformers.utils import is_sagemaker_mp_enabled
-from trl import DPOTrainer, ORPOConfig, ORPOTrainer
+from trl import DPOTrainer, KTOConfig, KTOTrainer, ORPOConfig, ORPOTrainer
 from trl.trainer.utils import pad_to_length
 
 from axolotl.loraplus import create_loraplus_optimizer
@@ -43,7 +43,7 @@ from axolotl.utils.callbacks import (
     LossWatchDogCallback,
     SaveAxolotlConfigtoWandBCallback,
     SaveBetterTransformerModelCallback,
-    SaveModelOnTrainEndCallback,
+    SaveModelCallback,
     bench_eval_callback_factory,
     causal_lm_bench_eval_callback_factory,
     log_prediction_callback_factory,
@@ -125,13 +125,21 @@ class AxolotlTrainingArguments(TrainingArguments):
         default=1.0,
         metadata={"help": "Sample packing efficiency for calculating batch length."},
     )
+    sample_packing_bin_size: int = field(
+        default=200,
+        metadata={
+            "help": "The max number of samples that packed sample can contain after packing. Increase for better packing."
+        },
+    )
+    sample_packing_group_size: int = field(
+        default=100000,
+        metadata={
+            "help": "The number of samples to group together for packing. Increase for better packing."
+        },
+    )
     max_seq_length: int = field(
         default=2048,
         metadata={"help": "The maximum sequence length the model can handle"},
-    )
-    sample_packing_seq_len_multiplier: int = field(
-        default=1,
-        metadata={"help": "the multiplier for the max len for packed sequences"},
     )
     relora_steps: Optional[int] = field(
         default=None,
@@ -346,11 +354,11 @@ class AxolotlTrainer(Trainer):
                 )
             return MultipackBatchSampler(
                 RandomSampler(self.train_dataset),
-                batch_size=batch_size,
-                drop_last=True,
-                batch_max_len=batch_max_len,
                 lengths=get_dataset_lengths(self.train_dataset),
-                packing_efficiency_estimate=self.args.sample_packing_efficiency,
+                batch_max_len=batch_max_len,
+                batch_size=batch_size,
+                group_size=self.args.sample_packing_group_size,
+                bin_size=self.args.sample_packing_bin_size,
             )
         if self.args.curriculum_sampling:
             return SequentialSampler(self.train_dataset)
@@ -370,11 +378,11 @@ class AxolotlTrainer(Trainer):
                 )
             return MultipackBatchSampler(
                 SequentialSampler(eval_dataset),
-                batch_size=batch_size,
-                drop_last=True,
+                lengths=get_dataset_lengths(self.eval_dataset),
                 batch_max_len=batch_max_len,
-                lengths=get_dataset_lengths(eval_dataset),
-                packing_efficiency_estimate=self.args.sample_packing_efficiency,
+                batch_size=batch_size,
+                group_size=self.args.sample_packing_group_size,
+                bin_size=self.args.sample_packing_bin_size,
             )
         return super()._get_eval_sampler(eval_dataset)
 
@@ -798,6 +806,40 @@ class AxolotlDPOTrainer(DPOTrainer):
 
     tag_names = ["axolotl", "dpo"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.optimizer = None
+
+    def create_optimizer(self):
+        if self.args.loraplus_lr_ratio is None:
+            return super().create_optimizer()
+
+        opt_model = self.model_wrapped if is_sagemaker_mp_enabled() else self.model
+        if self.optimizer is None:  # pylint: disable=access-member-before-definition
+            optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(
+                self.args,
+                opt_model,
+            )
+
+            loraplus_lr_ratio = getattr(self.args, "loraplus_lr_ratio", None)
+            if loraplus_lr_ratio:
+                print("Using lora+")
+            loraplus_lr_embedding = getattr(self.args, "loraplus_lr_embedding", None)
+            self.optimizer = create_loraplus_optimizer(  # pylint: disable=attribute-defined-outside-init
+                opt_model,
+                optimizer_cls,
+                optimizer_kwargs,
+                loraplus_lr_ratio,
+                loraplus_lr_embedding,
+            )
+
+        if is_sagemaker_mp_enabled():
+            self.optimizer = smp.DistributedOptimizer(  # pylint: disable=attribute-defined-outside-init
+                self.optimizer
+            )
+
+        return self.optimizer
+
     @wraps(DPOTrainer.push_to_hub)
     def push_to_hub(self, *args, **kwargs) -> str:
         """
@@ -824,6 +866,14 @@ class AxolotlORPOTrainer(ORPOTrainer):
     """
 
     tag_names = ["axolotl", "orpo"]
+
+
+class AxolotlKTOTrainer(KTOTrainer):
+    """
+    Extend the base KTOTrainer for axolotl helpers
+    """
+
+    tag_names = ["axolotl", "kto"]
 
 
 class TrainerBuilderBase(abc.ABC):
@@ -945,7 +995,7 @@ class HFCausalTrainerBuilder(TrainerBuilderBase):
         if self.cfg.loss_watchdog_threshold is not None:
             callbacks.append(LossWatchDogCallback(self.cfg))
 
-        callbacks.append(SaveModelOnTrainEndCallback())
+        callbacks.append(SaveModelCallback())
 
         return callbacks
 
@@ -1071,11 +1121,6 @@ class HFCausalTrainerBuilder(TrainerBuilderBase):
         if self.cfg.save_safetensors is not None:
             training_arguments_kwargs["save_safetensors"] = self.cfg.save_safetensors
 
-        if self.cfg.sample_packing_eff_est:
-            training_arguments_kwargs[
-                "sample_packing_efficiency"
-            ] = self.cfg.sample_packing_eff_est
-
         if self.cfg.dataloader_pin_memory is not None:
             training_arguments_kwargs[
                 "dataloader_pin_memory"
@@ -1122,6 +1167,8 @@ class HFCausalTrainerBuilder(TrainerBuilderBase):
         else:
             # default to saving each epoch if not defined
             training_arguments_kwargs["save_strategy"] = "epoch"
+
+        training_arguments_kwargs["save_only_model"] = self.cfg.save_only_model
 
         if self.cfg.do_bench_eval:
             training_arguments_kwargs["do_bench_eval"] = self.cfg.do_bench_eval
@@ -1202,11 +1249,14 @@ class HFCausalTrainerBuilder(TrainerBuilderBase):
         )
         training_arguments_kwargs["group_by_length"] = self.cfg.group_by_length
         training_arguments_kwargs["curriculum_sampling"] = self.cfg.curriculum_sampling
-        report_to = None
+        report_to = []
         if self.cfg.use_wandb:
-            report_to = "wandb"
+            report_to.append("wandb")
         if self.cfg.use_mlflow:
-            report_to = "mlflow"
+            report_to.append("mlflow")
+        if self.cfg.use_tensorboard:
+            report_to.append("tensorboard")
+
         training_arguments_kwargs["report_to"] = report_to
         training_arguments_kwargs["run_name"] = (
             self.cfg.wandb_name if self.cfg.use_wandb else None
@@ -1246,20 +1296,27 @@ class HFCausalTrainerBuilder(TrainerBuilderBase):
         training_arguments_kwargs["weight_decay"] = (
             self.cfg.weight_decay if self.cfg.weight_decay is not None else 0.0
         )
-        training_arguments_kwargs["sample_packing"] = (
-            self.cfg.sample_packing if self.cfg.sample_packing else False
-        )
-        training_arguments_kwargs["multipack_real_batches"] = (
-            self.cfg.flash_attention is not True
-        )
-        training_arguments_kwargs["eval_sample_packing"] = (
-            self.cfg.sample_packing
-            if self.cfg.eval_sample_packing is not False
-            else False
-        )
+
+        training_arguments_kwargs["sample_packing"] = bool(self.cfg.sample_packing)
         training_arguments_kwargs[
-            "sample_packing_seq_len_multiplier"
-        ] = self.cfg.micro_batch_size
+            "multipack_real_batches"
+        ] = not self.cfg.flash_attention
+        training_arguments_kwargs["eval_sample_packing"] = bool(
+            self.cfg.eval_sample_packing
+        )
+        if self.cfg.sample_packing_bin_size is not None:
+            training_arguments_kwargs[
+                "sample_packing_bin_size"
+            ] = self.cfg.sample_packing_bin_size
+        if self.cfg.sample_packing_group_size is not None:
+            training_arguments_kwargs[
+                "sample_packing_group_size"
+            ] = self.cfg.sample_packing_group_size
+        if self.cfg.sample_packing_eff_est:
+            training_arguments_kwargs[
+                "sample_packing_efficiency"
+            ] = self.cfg.sample_packing_eff_est
+
         if self.cfg.relora_steps:
             training_arguments_kwargs["relora_steps"] = self.cfg.relora_steps
             training_arguments_kwargs[
@@ -1429,7 +1486,7 @@ class HFRLTrainerBuilder(TrainerBuilderBase):
 
     def get_callbacks(self):
         callbacks = super().get_callbacks()
-        callbacks.append(SaveModelOnTrainEndCallback())
+        callbacks.append(SaveModelCallback())
 
         return callbacks
 
@@ -1470,6 +1527,8 @@ class HFRLTrainerBuilder(TrainerBuilderBase):
         if self.cfg.bf16 or self.cfg.bfloat16:
             training_args_kwargs["bf16"] = True
 
+        training_args_kwargs["loraplus_lr_ratio"] = self.cfg.loraplus_lr_ratio
+        training_args_kwargs["loraplus_lr_embedding"] = self.cfg.loraplus_lr_embedding
         training_args_kwargs["lr_scheduler_type"] = (
             self.cfg.lr_scheduler if self.cfg.lr_scheduler else "cosine"
         )
@@ -1522,9 +1581,25 @@ class HFRLTrainerBuilder(TrainerBuilderBase):
             # trl does some odd mapping of alpha to beta to reuse the beta parameter ???
             training_args_kwargs["beta"] = self.cfg.orpo_alpha
 
-        training_args_cls = TrainingArguments
+        training_args_cls = AxolotlTrainingArguments
         if self.cfg.rl == "orpo":
             training_args_cls = ORPOConfig
+            training_args_kwargs["dataset_num_proc"] = self.cfg.dataset_processes
+            training_args_kwargs["max_length"] = self.cfg.sequence_len
+            if self.cfg.max_prompt_len:
+                training_args_kwargs["max_prompt_length"] = self.cfg.max_prompt_len
+
+        if self.cfg.rl == "kto":
+            training_args_cls = KTOConfig
+
+            training_args_kwargs["beta"] = self.cfg.rl_beta or 0.1
+            training_args_kwargs["desirable_weight"] = (
+                self.cfg.kto_desirable_weight or 1.0
+            )
+            training_args_kwargs["undesirable_weight"] = (
+                self.cfg.kto_undesirable_weight or 1.0
+            )
+
             training_args_kwargs["dataset_num_proc"] = self.cfg.dataset_processes
             training_args_kwargs["max_length"] = self.cfg.sequence_len
             if self.cfg.max_prompt_len:
@@ -1565,7 +1640,7 @@ class HFRLTrainerBuilder(TrainerBuilderBase):
             ] = self.cfg.precompute_ref_log_probs
         if self.cfg.rl in ["dpo", "ipo", "kto_pair"]:
             trainer_cls = AxolotlDPOTrainer
-            dpo_trainer_kwargs["beta"] = self.cfg.dpo_beta or 0.1
+            dpo_trainer_kwargs["beta"] = self.cfg.rl_beta or 0.1
             trainer_cls_args = [self.model, self.model_ref]
 
             # these aren't used for the ORPO trainer
@@ -1577,6 +1652,9 @@ class HFRLTrainerBuilder(TrainerBuilderBase):
                 dpo_trainer_kwargs["dataset_num_proc"] = self.cfg.dataset_processes
         elif self.cfg.rl == "orpo":
             trainer_cls = AxolotlORPOTrainer
+            trainer_cls_args = [self.model]
+        elif self.cfg.rl == "kto":
+            trainer_cls = AxolotlKTOTrainer
             trainer_cls_args = [self.model]
         else:
             raise ValueError(f"Unsupported RL: {self.cfg.rl}")

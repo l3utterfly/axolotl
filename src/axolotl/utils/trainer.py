@@ -341,27 +341,26 @@ def calculate_total_num_steps(cfg, train_dataset, update=True):
             )
         else:
             if cfg.flash_attention:
-                batch_size = 1
+                sampler_batch_size = 1
                 batch_max_len = cfg.micro_batch_size * cfg.sequence_len
             else:
-                batch_size = cfg.micro_batch_size
+                sampler_batch_size = cfg.micro_batch_size
                 batch_max_len = cfg.sequence_len
             sampler = MultipackBatchSampler(
                 sampler=RandomSampler(train_dataset),
-                batch_size=batch_size,
-                drop_last=True,
-                batch_max_len=batch_max_len,
                 lengths=get_dataset_lengths(train_dataset),
+                batch_size=sampler_batch_size,
+                batch_max_len=batch_max_len,
+                group_size=cfg.sample_packing_group_size,
+                bin_size=cfg.sample_packing_bin_size,
+                drop_last=True,
             )
 
             data_loader = DataLoader(
                 train_dataset.remove_columns(["length"]),
                 batch_sampler=sampler,
             )
-            data_loader_len = len(data_loader) // (
-                cfg.world_size * cfg.gradient_accumulation_steps
-            )
-            actual_eff = sampler.efficiency()
+            data_loader_len = len(data_loader) * cfg.micro_batch_size // cfg.batch_size
             LOG.debug(f"data_loader_len: {data_loader_len}", main_process_only=True)
             # FIXME: is there a bug here somewhere? the total num steps depends
             # on the agreed on value for sample_packing_eff_est
@@ -372,7 +371,7 @@ def calculate_total_num_steps(cfg, train_dataset, update=True):
                 return max(estimates)
 
             sample_packing_actual_eff_all = reduce_and_broadcast(
-                lambda: actual_eff,
+                lambda: sampler.efficiency(),  # pylint: disable=unnecessary-lambda
                 calc_sample_packing_eff_est,
             )
             sample_packing_eff_est = (
@@ -428,7 +427,7 @@ def prepare_optim_env(cfg):
 
 
 def setup_trainer(cfg, train_dataset, eval_dataset, model, tokenizer, total_num_steps):
-    if cfg.rl in ["dpo", "ipo", "kto_pair", "orpo"]:
+    if cfg.rl in ["dpo", "ipo", "kto_pair", "orpo", "kto"]:
         trainer_builder = HFRLTrainerBuilder(cfg, model[0], tokenizer)
         trainer_builder.model_ref = model[1]
         trainer_builder.peft_config = model[2]
