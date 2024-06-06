@@ -17,6 +17,8 @@ from axolotl.utils.config.models.internals import GPUCapabilities
 
 LOG = logging.getLogger("axolotl.utils.config.models.input")
 
+SUPPORTED_METRICS = {"sacrebleu", "comet", "ter", "chrf", "perplexity"}
+
 
 class DeprecatedParameters(BaseModel):
     """configurations that are deprecated"""
@@ -110,6 +112,8 @@ class SFTDataset(BaseModel):
     field_human: Optional[str] = None
     field_model: Optional[str] = None
     field_messages: Optional[str] = None
+    message_field_role: Optional[str] = None
+    message_field_content: Optional[str] = None
 
     roles: Optional[Dict[str, List[str]]] = None
 
@@ -174,6 +178,7 @@ class ChatTemplate(str, Enum):
     gemma = "gemma"  # pylint: disable=invalid-name
     cohere = "cohere"  # pylint: disable=invalid-name
     llama3 = "llama3"  # pylint: disable=invalid-name
+    phi_3 = "phi_3"  # pylint: disable=invalid-name
 
 
 class LoftQConfig(BaseModel):
@@ -617,6 +622,7 @@ class AxolotlInputConfig(
     neftune_noise_alpha: Optional[float] = None
 
     orpo_alpha: Optional[float] = None
+    rpo_alpha: Optional[float] = None
 
     kto_desirable_weight: Optional[float] = None
     kto_undesirable_weight: Optional[float] = None
@@ -1070,13 +1076,12 @@ class AxolotlInputConfig(
             )
 
         if data.get("eval_causal_lm_metrics"):
-            supported_metrics = ["sacrebleu", "comet", "ter", "chrf"]
             if not isinstance(data.get("eval_causal_lm_metrics"), list):
                 raise ValueError("eval_causal_lm_metrics must be a list")
             # only ["sacrebleu", "comet", "ter", "chrf"] supported
-            if set(data.get("eval_causal_lm_metrics")) - set(supported_metrics):
+            if set(data.get("eval_causal_lm_metrics")) - SUPPORTED_METRICS:
                 raise ValueError(
-                    f"eval_causal_lm_metrics must be one of {supported_metrics}"
+                    f"eval_causal_lm_metrics must be one of {SUPPORTED_METRICS}"
                 )
         return data
 

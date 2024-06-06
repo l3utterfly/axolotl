@@ -30,7 +30,7 @@ from transformers import (
 )
 from transformers.trainer_utils import seed_worker
 from transformers.utils import is_sagemaker_mp_enabled
-from trl import DPOTrainer, KTOConfig, KTOTrainer, ORPOConfig, ORPOTrainer
+from trl import DPOConfig, DPOTrainer, KTOConfig, KTOTrainer, ORPOConfig, ORPOTrainer
 from trl.trainer.utils import pad_to_length
 
 from axolotl.loraplus import create_loraplus_optimizer
@@ -91,11 +91,12 @@ def _sanitize_kwargs_for_tagging(tag_names, kwargs=None):
 
 
 @dataclass
-class AxolotlTrainingArguments(TrainingArguments):
+class AxolotlTrainingMixins:
     """
-    Extend the base TrainingArguments for axolotl helpers
+    Mixin class for the Axolotl training args.
     """
 
+    # pylint: disable=duplicate-code
     model_type: Optional[str] = field(
         default=None, metadata={"help": "HF model configuration model_type."}
     )
@@ -225,6 +226,37 @@ class AxolotlTrainingArguments(TrainingArguments):
         default=None,
         metadata={"help": "whether to use sequential sampling for curriculum learning"},
     )
+
+
+@dataclass
+class AxolotlTrainingArguments(AxolotlTrainingMixins, TrainingArguments):
+    """
+    Training arguments for Causal trainer
+
+    This code is duplicated due to HF TrainingArguments not setting output_dir with a defaujlt value
+    so it can't be used as a mixin.
+    """
+
+
+@dataclass
+class AxolotlDPOConfig(AxolotlTrainingMixins, DPOConfig):
+    """
+    DPO config for DPO training
+    """
+
+
+@dataclass
+class AxolotlORPOConfig(AxolotlTrainingMixins, ORPOConfig):
+    """
+    ORPO config for ORPO training
+    """
+
+
+@dataclass
+class AxolotlKTOConfig(AxolotlTrainingMixins, KTOConfig):
+    """
+    KTO config for KTO training
+    """
 
 
 class AxolotlTrainer(Trainer):
@@ -359,6 +391,7 @@ class AxolotlTrainer(Trainer):
                 batch_size=batch_size,
                 group_size=self.args.sample_packing_group_size,
                 bin_size=self.args.sample_packing_bin_size,
+                drop_last=True,
             )
         if self.args.curriculum_sampling:
             return SequentialSampler(self.train_dataset)
@@ -383,6 +416,7 @@ class AxolotlTrainer(Trainer):
                 batch_size=batch_size,
                 group_size=self.args.sample_packing_group_size,
                 bin_size=self.args.sample_packing_bin_size,
+                drop_last=True,
             )
         return super()._get_eval_sampler(eval_dataset)
 
@@ -1581,16 +1615,18 @@ class HFRLTrainerBuilder(TrainerBuilderBase):
             # trl does some odd mapping of alpha to beta to reuse the beta parameter ???
             training_args_kwargs["beta"] = self.cfg.orpo_alpha
 
-        training_args_cls = AxolotlTrainingArguments
+        training_args_cls = AxolotlDPOConfig
+        if self.cfg.rpo_alpha is not None:
+            training_args_kwargs["rpo_alpha"] = self.cfg.rpo_alpha
         if self.cfg.rl == "orpo":
-            training_args_cls = ORPOConfig
+            training_args_cls = AxolotlORPOConfig
             training_args_kwargs["dataset_num_proc"] = self.cfg.dataset_processes
             training_args_kwargs["max_length"] = self.cfg.sequence_len
             if self.cfg.max_prompt_len:
                 training_args_kwargs["max_prompt_length"] = self.cfg.max_prompt_len
 
         if self.cfg.rl == "kto":
-            training_args_cls = KTOConfig
+            training_args_cls = AxolotlKTOConfig
 
             training_args_kwargs["beta"] = self.cfg.rl_beta or 0.1
             training_args_kwargs["desirable_weight"] = (
@@ -1605,12 +1641,12 @@ class HFRLTrainerBuilder(TrainerBuilderBase):
             if self.cfg.max_prompt_len:
                 training_args_kwargs["max_prompt_length"] = self.cfg.max_prompt_len
 
-        training_args = training_args_cls(
+        training_args = training_args_cls(  # pylint: disable=unexpected-keyword-arg
+            output_dir=self.cfg.output_dir,
             per_device_train_batch_size=self.cfg.micro_batch_size,
             max_steps=self.cfg.max_steps or total_num_steps,
             gradient_accumulation_steps=self.cfg.gradient_accumulation_steps,
             learning_rate=self.cfg.learning_rate,
-            output_dir=self.cfg.output_dir,
             warmup_steps=self.cfg.warmup_steps,
             logging_first_step=True,
             logging_steps=1,
