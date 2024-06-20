@@ -385,8 +385,8 @@ class ShareGPTPromptTokenizingStrategy(PromptTokenizingStrategy):
                 empty_role = role.strip() == ""
 
                 if not any([input_turn, output_turn, empty_role]):
-                    LOG.warning(f"unhandled role: {role}")
-                    continue
+                    # LOG.warning(f"unhandled role: {role}, assuming output")
+                    output_turn = True
 
                 if input_turn:
                     role = (
