@@ -116,6 +116,7 @@ class SFTDataset(BaseModel):
     message_field_content: Optional[str] = None
 
     roles: Optional[Dict[str, List[str]]] = None
+    drop_system_message: Optional[bool] = None
 
 
 class UserDefinedDPOType(BaseModel):
@@ -164,7 +165,6 @@ class RLType(str, Enum):
 
     dpo = "dpo"  # pylint: disable=invalid-name
     ipo = "ipo"  # pylint: disable=invalid-name
-    kto_pair = "kto_pair"  # pylint: disable=invalid-name
     orpo = "orpo"  # pylint: disable=invalid-name
     kto = "kto"  # pylint: disable=invalid-name
 
@@ -341,7 +341,7 @@ class HyperparametersConfig(BaseModel):
     learning_rate: Union[str, float]
     weight_decay: Optional[float] = 0.0
     optimizer: Optional[
-        Union[OptimizerNames, Literal["lion_pytorch"]]
+        Union[OptimizerNames, Literal["lion_pytorch", "optimi_adamw"]]
     ] = OptimizerNames.ADAMW_HF.value
     optim_args: Optional[Union[str, Dict[str, Any]]] = Field(
         default=None, metadata={"help": "Optional arguments to supply to optimizer."}
@@ -1112,6 +1112,31 @@ class AxolotlInputConfig(
             raise ValueError("either datasets or pretraining_dataset is required")
         return data
 
+    @model_validator(mode="before")
+    @classmethod
+    def check_xentropy_patch_conflicts(cls, data):
+        if data.get("flash_attn_cross_entropy") and data.get(
+            "unsloth_cross_entropy_loss"
+        ):
+            raise ValueError(
+                "flash_attn_cross_entropy and unsloth_cross_entropy_loss cannot be both enabled"
+            )
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def check_qlora_unsloth(cls, data):
+        if (
+            data.get("unsloth_lora_mlp")
+            or data.get("unsloth_lora_qkv")
+            or data.get("unsloth_lora_o")
+        ):
+            if data.get("adapter") == "lora" or data.get("load_in_8bit"):
+                raise ValueError(
+                    "unsloth_lora_mlp, unsloth_lora_qkv, and unsloth_lora_o are not compatible with 8-bit LoRA"
+                )
+        return data
+
 
 class AxolotlConfigWCapabilities(AxolotlInputConfig):
     """wrapper to valdiate gpu capabilities with the configured options"""
@@ -1162,4 +1187,19 @@ class AxolotlConfigWCapabilities(AxolotlInputConfig):
     def check_fsdp_deepspeed(cls, data):
         if data.get("deepspeed") and data.get("fsdp"):
             raise ValueError("deepspeed and fsdp cannot be used together.")
+        return data
+
+    @model_validator(mode="before")
+    @classmethod
+    def check_multigpu_unsloth(cls, data):
+        if (
+            data.get("unsloth_lora_mlp")
+            or data.get("unsloth_lora_qkv")
+            or data.get("unsloth_lora_o")
+        ):
+            capabilities = data.get("capabilities")
+            if capabilities and capabilities.get("num_gpus") > 1:
+                raise ValueError(
+                    "unsloth_lora_mlp, unsloth_lora_qkv, and unsloth_lora_o are not compatible with multi-GPU training."
+                )
         return data
